@@ -14,7 +14,7 @@
     popupWidth: 236,
     waitPulse: 0,           // 等你（指示／授權）：一明一暗一次的秒數；0 = 常亮不閃
     ringPeriod: 14,         // 整圈弧線順時針轉一圈的秒數；所有段一起轉，彼此間距不變。0 = 不轉
-    flashSeconds: 0.7,      // 狀態改變時，那一段閃一下的秒數
+    flashSeconds: 0,        // 狀態改變時，那一段閃一下的秒數；0 = 不閃（只有一個工作階段時整圈都會閃，太搶眼）
   };
 
   // 每個主題：弧線畫在哪一圈（相對內核半徑 RPT）、段與段的間隙（度）、虛線每節長度（度）、線條粗細倍數 w、整體透明度 alpha、光暈倍數 blur、顏色
@@ -278,7 +278,7 @@
         const pulse = SessCfg.waitPulse > 0 ? 0.3 + 0.7 * (0.5 - 0.5 * Math.cos((now / SessCfg.waitPulse) * TAU)) : 1;
         arc(a0, a1, SessCfg.waitPulse > 0 ? 1.5 : 2, k.wait, pulse, 'butt', 2);
       }
-      const f = (now - s.flashAt) / SessCfg.flashSeconds;
+      const f = SessCfg.flashSeconds > 0 ? (now - s.flashAt) / SessCfg.flashSeconds : 1;
       if (f >= 0 && f < 1 && s.state !== 'idle') arc(a0, a1, 4.5, k.done, 0.45 * (1 - f), 'butt', 6);
     });
     ctx.restore();
