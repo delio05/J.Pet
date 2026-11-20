@@ -2,6 +2,8 @@
 
 一個常駐在桌面上的光球桌寵，支援 **macOS 與 Windows**。有橙色光球和藍色光環兩種外觀，會呼吸、可以拖拽甩動，也有一些小互動。
 
+> **給 AI 助手（Claude Code 等）：** clone 之後請先閱讀 [`CLAUDE.md`](CLAUDE.md)，照裡面的「幫使用者啟動」步驟操作。
+
 > **本專案僅供個人娛樂與學習使用，非商業用途。**
 > 詳見文末的[免責聲明](#免責聲明)。
 
@@ -11,7 +13,10 @@
 
 ## 快速開始
 
-需求：已安裝 [Node.js](https://nodejs.org) 18 以上（建議 LTS 版）。macOS 和 Windows 都一樣。
+需求（macOS 和 Windows 都一樣）：
+
+- [Git](https://git-scm.com)：用來下載專案。macOS 第一次執行 `git` 時，系統會提示你安裝；Windows 上安裝 Claude Code 時通常已經裝好了。
+- [Node.js](https://nodejs.org) 18 以上，建議 LTS 版：用來安裝和執行程式。
 
 ```bash
 git clone https://github.com/delio05/J.Pet.git
@@ -44,6 +49,8 @@ Claude 會讀取 [`CLAUDE.md`](CLAUDE.md)，自動檢查 Node.js、安裝相依�
 | 狀況 | 處理方式 |
 |---|---|
 | `node: command not found` 或 `npm` 找不到 | 先到 https://nodejs.org 安裝 LTS 版，重新開終端機再試 |
+| Windows PowerShell 出現「因為這個系統上已停用指令碼執行」 | 改用 `npm.cmd install` 和 `npm.cmd start`，或改用「命令提示字元」（cmd） |
+| `npm install` 卡住，或下載 Electron 失敗 | 網路連不到 GitHub 時，可以改用鏡像站再試一次：macOS 執行 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm install`，Windows PowerShell 執行 `$env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"; npm.cmd install` |
 | 找不到「J.」圖示 | macOS 在選單列右上角；Windows 在右下角系統匣，可能收在 `^` 裡 |
 | 想關掉 | 「J.」圖示或光球右鍵 →「退出」 |
 | 想重設設定 | 刪除設定檔：macOS 的 `~/Library/Application Support/orbpet/settings.json`；Windows 的 `%APPDATA%\orbpet\settings.json` |

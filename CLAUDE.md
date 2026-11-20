@@ -17,9 +17,13 @@ OrbPet：桌面光球寵物，支援 **macOS 與 Windows**。用 Electron 寫成
 
 ## 幫使用者啟動（照順序做）
 
+0. 如果使用者只給了 repo 網址：先確認有 `git`（`git --version`），再執行 `git clone https://github.com/delio05/J.Pet.git`，接下來的步驟都在 `J.Pet` 資料夾裡進行。
 1. 確認有 Node.js 18 以上：`node -v`
    - 沒有的話，請使用者到 https://nodejs.org 下載 LTS 版安裝，或用他們慣用的套件管理工具安裝（macOS 可用 `brew install node`，Windows 可用 `winget install OpenJS.NodeJS.LTS`）。安裝需要使用者自己同意，不要代為操作。
 2. 在專案根目錄執行 `npm install`，會下載 Electron，約 100 MB。
+   - Windows PowerShell 如果出現「已停用指令碼執行」（execution policy），改用 `npm.cmd install` 和 `npm.cmd start`。不要修改系統的執行原則。
+   - 下載 Electron 失敗或逾時（例如連不到 GitHub）：設定環境變數 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` 後重跑 `npm install`。
+   - 如果 `node_modules/electron/dist` 不存在（之前安裝中斷），刪掉 `node_modules` 後重新安裝。
 3. 執行 `npm start`。這個指令會一直佔著終端機，請在背景執行，或請使用者另開終端機。
 4. 告訴使用者：
    - 光球會從螢幕上方掉下來。
