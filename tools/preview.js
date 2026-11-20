@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const out = path.resolve(process.argv[process.argv.length - 1].endsWith('.png') ? process.argv[process.argv.length - 1] : 'preview.png');
 app.whenReady().then(async () => {
-  const w = new BrowserWindow({ width: 1040, height: 540, show: false, useContentSize: true });
+  const w = new BrowserWindow({ width: 1060, height: 780, show: false, useContentSize: true });
   await w.loadFile(path.join(__dirname, 'preview.html'));
   await new Promise((r) => setTimeout(r, 300));
   const img = await w.webContents.capturePage();

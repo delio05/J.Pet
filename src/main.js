@@ -99,6 +99,11 @@ function createWindow() {
     win.showInactive();
     // 除錯：ORBPET_DEMO_POMO=秒數 → 啟動後馬上開始一個很短的番茄鐘
     if (process.env.ORBPET_DEMO_POMO) send('action', `debugPomo:${process.env.ORBPET_DEMO_POMO}`);
+    // 除錯：ORBPET_DEMO_SLEEP=秒數 → 啟動後馬上睡著，過這麼多秒再叫醒
+    if (process.env.ORBPET_DEMO_SLEEP) {
+      send('action', 'debugSleep');
+      setTimeout(() => send('action', 'wake'), Number(process.env.ORBPET_DEMO_SLEEP) * 1000);
+    }
   });
 
   // 除錯：ORBPET_DEBUG=1 把畫面錯誤印到終端機；ORBPET_CAPTURE=檔案.png 在 4 秒後把光球附近畫面存成圖片

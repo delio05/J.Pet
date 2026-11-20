@@ -48,6 +48,7 @@ const Behave = {
   dodgeClicks: 3,           // 2 秒內點這麼多下就躲開
   mutterGap: [300, 600],    // 自言自語：兩句之間至少隔幾秒（在這個範圍內隨機）。調大 = 更少說話
   mutterSeconds: 3.6,       // 一句話停留幾秒
+  hat: true,               // 睡著時戴聖誕帽，被叫醒時帽子掉到地上再消失
   dodgeSpeed: 150,          // 躲開時的橫向速度（落地時大約會滑開 40px）
 };
 
@@ -123,6 +124,7 @@ let alarmUntil = 0, nextAlarmHop = 0, hopSide = 1, firstCelebrateHop = false;
 let apexBurstCount = 0, apexBurstAt = 0;
 let clipFlashAt = 0, clipPulse = 0;
 let yawnAt = -99;            // 開始打哈欠的時間（入睡的那一刻）
+let hatAmt = 0;              // 聖誕帽戴上的程度 0..1（睡著時慢慢戴上）
 let groggyUntil = 0;         // 被叫醒後迷糊到什麼時候
 const pokeTimes = [];        // 最近幾次點擊的時間，用來判斷「戳太多下」
 let dodgeReadyAt = 0;
@@ -134,9 +136,9 @@ let lateSaidOn = '', batterySaidAt = -9999;
 const radius = () => D * Cfg.collisionScale;
 
 // 512px 的原圖先縮到實際顯示大小，每幀貼圖比較省
-function shrink(img) {
+function shrink(img, scale = 1) {
   // 縮到螢幕實際需要的大小（1× 螢幕約 120px、Retina 約 240px），每次最多縮一半，細線才不會糊掉
-  const target = Math.ceil(S * (window.devicePixelRatio || 1) * 1.2);
+  const target = Math.ceil(S * scale * (window.devicePixelRatio || 1) * 1.2);
   let src = img;
   while (src.width / 2 > target) {
     const half = document.createElement('canvas');
@@ -160,6 +162,7 @@ function prepareArt(a) {
     ...a,
     shell: shrink(a.shell), mid: a.mid && shrink(a.mid),
     shellPlain: a.shellPlain && shrink(a.shellPlain),
+    hat: a.hat && shrink(a.hat, 2),
     coreGlow: shrink(a.coreGlow), coreBase: shrink(a.coreBase), coreInner: a.coreInner && shrink(a.coreInner), coreSpinner: a.coreSpinner && shrink(a.coreSpinner),
     arms: a.arms.map((arm) => ({ ...arm, image: shrink(arm.image) })),
   };
@@ -248,6 +251,7 @@ api.on('welcome', (awaySeconds) => {
 });
 
 api.on('action', (type) => {
+  if (type === 'debugSleep') { lastInteraction = now - Behave.sleepAfter - 1; return; } // 除錯：馬上睡著
   noteInteraction();
   if (type === 'startFocus') startPomodoro(Behave.focusMinutes, false);
   else if (type === 'startBreak') startPomodoro(Behave.breakMinutes, true);
@@ -550,12 +554,51 @@ function emitMotes(dt) {
   }
 }
 
+// 被叫醒：帽子從頭上彈開，掉到地上，停一下再淡掉
+function dropHat() {
+  if (!art.hat || hatAmt < 0.3) return;
+  const hc = OrbArt.hatCenter(), r = S * 0.44;
+  particles.push({
+    kind: 'hat', x: pos.x + hc.x * r, y: pos.y + hc.y * r, cx: hc.x * r, cy: hc.y * r,
+    vx: vel.x * 0.5 + rand(50, 110), vy: Math.min(vel.y, 0) * 0.5 - rand(160, 230),
+    rot: 0, spin: rand(2.5, 5), tilt: hc.tilt, rest: 0, bounces: 0,
+    age: 0, life: 12, alpha: Math.min(1, hatAmt), alphaSpeed: 0, size: 1, sizeSpeed: 0,
+  });
+}
+
+function updateHat(p, dt) {
+  const floor = work.y + work.height, half = S * 0.44 * 0.42; // 帽子大約的半高
+  if (p.rest) { // 落地後：轉正（帽緣朝下）、停一下、淡掉
+    p.rot += (p.restRot - p.rot) * Math.min(1, 10 * dt);
+    p.y += (floor - half - p.y) * Math.min(1, 10 * dt);
+    if (p.age - p.rest > 0.9) p.alpha -= dt / 0.6;
+    return p.alpha > 0;
+  }
+  p.vy += 1400 * dt;
+  p.x += p.vx * dt; p.y += p.vy * dt;
+  p.rot += p.spin * dt;
+  if (p.x < work.x + half || p.x > work.x + work.width - half) { p.vx = -p.vx * 0.5; p.x = clamp(p.x, work.x + half, work.x + work.width - half); }
+  if (p.y > floor - half) {
+    p.y = floor - half;
+    p.bounces += 1;
+    if (Math.abs(p.vy) < 180 || p.bounces >= 3) {
+      p.rest = p.age;
+      // 帽緣朝下 = 總角度（傾斜 + 旋轉）是 2π 的倍數，取最近的那個
+      p.restRot = Math.round((p.rot + p.tilt) / TAU) * TAU - p.tilt;
+    } else {
+      p.vy = -p.vy * 0.35; p.vx *= 0.6; p.spin *= -0.5;
+    }
+  }
+  return true;
+}
+
 function updateParticles(dt) {
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.age += dt;
     if (p.age >= p.life) { particles.splice(i, 1); continue; }
     if (p.kind === 'absorb') continue;
+    if (p.kind === 'hat') { if (!updateHat(p, dt)) particles.splice(i, 1); continue; }
     p.x += p.vx * dt; p.y += p.vy * dt;
     p.size = Math.max(0, p.size + p.sizeSpeed * dt);
     p.alpha += p.alphaSpeed * dt;
@@ -659,6 +702,8 @@ function updateMood(dt) {
   const idle = now - lastInteraction;
   if (!asleep && !timing && idle > Behave.sleepAfter && alarmUntil < now) { asleep = true; yawnAt = now; } // 入睡前先打個哈欠
   sleepAmt += ((asleep ? 1 : 0) - sleepAmt) * Math.min(1, (asleep ? 0.6 : 3) * dt);
+  if (Behave.hat && asleep && sleepAmt > 0.5) hatAmt = Math.min(1, hatAmt + dt / 0.9);
+  else if (hatAmt > 0) { if (!asleep) dropHat(); hatAmt = 0; }
   if (!asleep && !timing && !dragging && idle > Behave.idleAfter && now > nextIdleAction && now > dizzyUntil) {
     nextIdleAction = now + rand(6, 14);
     const a = rand(0, TAU);
@@ -832,7 +877,7 @@ function renderParticles() {
   let box = null;
   for (const p of particles) {
     const px = (p.kind === 'absorb' ? p.fx : p.x) - win.x, py = (p.kind === 'absorb' ? p.fy : p.y) - win.y;
-    const m = 30;
+    const m = p.kind === 'hat' ? 80 : 30;
     if (!box) box = { x0: px - m, y0: py - m, x1: px + m, y1: py + m };
     box.x0 = Math.min(box.x0, px - m); box.y0 = Math.min(box.y0, py - m);
     box.x1 = Math.max(box.x1, px + m); box.y1 = Math.max(box.y1, py + m);
@@ -951,6 +996,13 @@ function renderOrb(ctx, lx, ly, v) {
     }
   }
   ctx.restore(); // 內核
+
+  // 聖誕帽：跟著外殼的視差和變形，但不自轉
+  if (hatAmt > 0 && art.hat) { // 睡著：從上方輕輕落到頭上
+    const k = 1 - hatAmt, drop = k * k * D * 0.45;
+    ctx.globalAlpha = Math.min(1, hatAmt * 1.5) * (0.9 + 0.1 * b) * dim;
+    ctx.drawImage(art.hat, shX - S, shY - S - drop, S * 2, S * 2);
+  }
   ctx.restore(); // 本體
 
   // ---- 中央文字：倒計時 / J.A.R.V.I.S.（不跟滑鼠、不跟呼吸）----
@@ -992,6 +1044,13 @@ function drawParticles() {
       ctx.globalAlpha = op;
       ctx.translate(x, y); ctx.rotate(p.rot);
       ctx.drawImage(p.img === 'shard' ? art.shard : art.spark, -sz / 2, -sz / 2, sz, sz);
+      ctx.restore();
+    } else if (p.kind === 'hat') {
+      ctx.save();
+      ctx.globalAlpha = clamp(p.alpha, 0, 1);
+      ctx.translate(p.x - win.x, p.y - win.y);
+      ctx.rotate(p.rot);
+      ctx.drawImage(art.hat, -p.cx - S, -p.cy - S, S * 2, S * 2); // 圖的中心是球心，往回移到帽子中心
       ctx.restore();
     } else if (p.kind === 'z') {
       const t = p.age / p.life;

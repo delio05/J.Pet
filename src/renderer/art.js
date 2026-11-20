@@ -282,6 +282,91 @@ function drawBlueCoreParts(n = 512) {
   return { glow: glowC, base, arcs, inner };
 }
 
+// ---------------- 聖誕帽 ----------------
+// 機械風：全部是直線，像 HUD 零件。帽子整頂浮在球外面，帽緣底邊和球之間留一點空隙。
+// 畫布是外殼的兩倍大（n = 1024 對應 2S），球心在畫布中央、球半徑和外殼一樣是 0.44 × 512。
+const HAT = {
+  tilt: 0.6,      // 往右傾斜（弧度）
+  gap: 0.07,      // 帽緣底邊離球面的空隙（球半徑的倍數）
+  halfW: 0.4,     // 帽緣半寬
+  band: 0.15,     // 帽緣高度
+  height: 0.78,   // 帽身高度
+  pom: 0.08,      // 頂端六角形的半徑
+};
+
+function drawHat(color, n = 1024) {
+  const { c, ctx } = mk(n);
+  const C = n / 2, R = 512 * 0.44;
+  const cs = Math.cos(HAT.tilt), sn = Math.sin(HAT.tilt);
+  const seat = 1 + HAT.gap; // 帽緣底邊（y = 0）剛好和球相切再往外推一點
+  const ox = C + sn * seat * R, oy = C - cs * seat * R;
+  // 帽子自己的座標（單位：球半徑，y 往下為正）→ 畫布座標
+  const P = (x, y) => [ox + (x * cs - y * sn) * R, oy + (x * sn + y * cs) * R];
+  const path = (pts, close) => {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); });
+    if (close) ctx.closePath();
+  };
+  const line = (pts, t, a, w, close) => { path(pts, close); stroke(ctx, color(t, a), w); };
+  const lerp = (p, q, t) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+  ctx.lineJoin = 'miter';
+  ctx.lineCap = 'butt';
+
+  const hw = HAT.halfW, bh = HAT.band, top = -bh;
+  // 帽身：直的三角形，不折
+  const bw = hw * 0.8;
+  const BL = [-bw, top], BR = [bw, top], TIP = [0, top - HAT.height];
+  const body = [BL, TIP, BR];
+  const mid = [0, top - HAT.height * 0.35];
+
+  // 淡底色
+  path(body, true);
+  ctx.fillStyle = color(0.1, 0.1);
+  ctx.fill();
+  // 外框：一條亮線 + 一條稍微內縮的暗線（雙線，像面板邊）
+  ctx.shadowColor = color(0.6, 0.8);
+  ctx.shadowBlur = 5;
+  line(body, 0.85, 0.95, 1.3, false);
+  ctx.shadowBlur = 0;
+  line(body.map((p) => lerp(p, mid, 0.12)), 0.5, 0.4, 0.6, false);
+  // 面板分割線：橫切帽身的直線
+  for (const t of [0.3, 0.58]) line([lerp(BL, TIP, t), lerp(BR, TIP, t)], 0.6, 0.55, 0.8);
+  // 鉚釘
+  ctx.fillStyle = color(0.9, 0.85);
+  for (const t of [0.15, 0.44, 0.7]) {
+    for (const p of [BL, BR]) {
+      const [x, y] = lerp(lerp(p, TIP, t), mid, 0.2);
+      const [px, py] = P(x, y);
+      ctx.beginPath(); ctx.arc(px, py, 2.2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // 帽緣：兩條平行硬線，中間一排刻度
+  ctx.shadowColor = color(0.6, 0.8);
+  ctx.shadowBlur = 5;
+  line([[-hw, top], [hw, top], [hw + 0.04, top + bh / 2], [hw, 0], [-hw, 0], [-hw - 0.04, top + bh / 2]], 0.9, 1, 1.4, true);
+  ctx.shadowBlur = 0;
+  const ticks = 15;
+  for (let i = 1; i < ticks; i++) {
+    const x = -hw + (2 * hw * i) / ticks, long = i % 5 === 0 ? 0.2 : 0.33;
+    line([[x, top + bh * long], [x, -bh * long]], 0.75, i % 5 === 0 ? 0.9 : 0.6, i % 5 === 0 ? 1.1 : 0.7);
+  }
+
+  // 頂端：六角形 + 中心亮點，和帽尖用一小段短桿連起來
+  const dir = -Math.PI / 2; // 直直往上
+  const PC = [TIP[0] + Math.cos(dir) * HAT.pom * 1.5, TIP[1] + Math.sin(dir) * HAT.pom * 1.5];
+  line([TIP, lerp(TIP, PC, 0.45)], 0.8, 0.9, 1.1);
+  const hex = (r) => Array.from({ length: 6 }, (_, i) => [PC[0] + Math.cos(dir + i * Math.PI / 3) * r, PC[1] + Math.sin(dir + i * Math.PI / 3) * r]);
+  ctx.shadowColor = color(0.7, 0.9);
+  ctx.shadowBlur = 6;
+  line(hex(HAT.pom), 0.95, 1, 1.3, true);
+  ctx.shadowBlur = 0;
+  line(hex(HAT.pom * 0.55), 0.6, 0.6, 0.7, true);
+  const [cx, cy] = P(...PC);
+  radial(ctx, cx, cy, HAT.pom * R * 0.5, [[0, color(1, 0.95)], [0.5, color(0.8, 0.4)], [1, color(0.5, 0)]]);
+  return c;
+}
+
 // ---------------- 碎片圖 ----------------
 
 function makeSpark(core, mid, edge, edge0) {
@@ -316,6 +401,7 @@ const THEMES = {
       return {
         shell: drawShell(), mid: null,
         shellPlain: drawShell(512, 0.38), // 有終端機工作階段時用：中圈調暗，讓位給分段弧線
+        hat: drawHat(orbColor),
         coreGlow: core.glow, coreBase: core.base, coreSpinner: null, arms: core.arms, dots: core.dots,
         spark: makeSpark(rgba(1, 0.97, 0.8, 1), rgba(1, 0.7, 0.15, 1), rgba(0.95, 0.45, 0, 0.85), rgba(0.95, 0.45, 0, 0)),
         shard: makeShard(rgba(0.95, 0.42, 0, 1), rgba(1, 0.93, 0.6, 1)),
@@ -334,6 +420,7 @@ const THEMES = {
       return {
         shell: drawBlueShell(), mid: drawBlueMid(),
         shellPlain: drawBlueShell(512, false), // 有終端機工作階段時用：最外圈三段亮弧換成分段弧線
+        hat: drawHat(blueColor),
         coreGlow: core.glow, coreBase: core.base, coreInner: core.inner, coreSpinner: core.arcs, arms: [], dots: [],
         spark: makeSpark(rgba(0.9, 1, 1, 1), rgba(0.35, 0.85, 1, 1), rgba(0.05, 0.4, 0.9, 0.85), rgba(0.05, 0.4, 0.9, 0)),
         shard: makeShard(rgba(0.05, 0.4, 0.88, 1), rgba(0.75, 0.97, 1, 1)),
@@ -389,4 +476,10 @@ function segmentPaths(text, h) {
   return { lit, all, width: x - t * 0.9 + h * skew };
 }
 
-window.OrbArt = { getArt, THEMES, segmentPaths };
+// 帽子中心相對球心的位置（單位：球半徑，y 往下為正），掉落時繞這一點旋轉
+function hatCenter() {
+  const d = 1 + HAT.gap + HAT.band + HAT.height * 0.4;
+  return { x: Math.sin(HAT.tilt) * d, y: -Math.cos(HAT.tilt) * d, tilt: HAT.tilt };
+}
+
+window.OrbArt = { getArt, THEMES, segmentPaths, hatCenter };

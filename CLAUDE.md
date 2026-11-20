@@ -43,6 +43,7 @@ OrbPet：桌面光球寵物，支援 **macOS 與 Windows**。用 Electron 寫成
   - `ORBPET_DEBUG=1 npm start`：把畫面端的錯誤印到終端機，每 3 秒印一次光球狀態。
   - `ORBPET_CAPTURE=/絕對路徑/out.png npm start`：4 秒後把光球附近 320×320 的畫面存成 PNG。用 `ORBPET_CAPTURE_DELAY=毫秒` 可以調整等待時間。截圖是透明背景。
   - `ORBPET_DEMO_POMO=10 npm start`：一啟動就開始 10 秒的番茄鐘，可以搭配截圖檢查倒數與慶祝效果。
+  - `ORBPET_DEMO_SLEEP=6 npm start`：一啟動就睡著（會戴上聖誕帽），6 秒後叫醒，可以搭配截圖檢查帽子掉落。
 - 拖拽、手感這類動態效果，無法從截圖判斷，改完請使用者實際試。
 - 效能：平靜時以 `CALM_FPS`（預設 20）更新，動起來才用 60fps。不要改回全螢幕每幀重畫（GPU 會吃很重）。光球畫在小畫布 `#orb` 上，用 CSS 位移；碎片畫在全螢幕畫布 `#fx` 上，沒有碎片時不重畫。
 
