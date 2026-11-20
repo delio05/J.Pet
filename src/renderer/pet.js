@@ -131,6 +131,7 @@ function prepareArt(a) {
   const p = {
     ...a,
     shell: shrink(a.shell), mid: a.mid && shrink(a.mid),
+    shellPlain: a.shellPlain && shrink(a.shellPlain),
     coreGlow: shrink(a.coreGlow), coreBase: shrink(a.coreBase), coreSpinner: a.coreSpinner && shrink(a.coreSpinner),
     arms: a.arms.map((arm) => ({ ...arm, image: shrink(arm.image) })),
   };
@@ -190,6 +191,7 @@ function setTheme(name, playful) {
   art = prepareArt(OrbArt.getArt(name));
   buildDotStates();
   lastTimerText = '';
+  Sessions.setTheme(name);
   if (changed && playful && placed) { hop(500); queueApexBurst(18); }
 }
 
@@ -212,6 +214,12 @@ api.on('action', (type) => {
   }
 });
 
+// 終端機有事要通知時：只彈窗，光球不跳；睡著的話先醒來
+Sessions.onNotify = () => {
+  if (hidden) return;
+  if (asleep) asleep = false;
+};
+
 if (navigator.getBattery) navigator.getBattery().then((b) => { battery = b; }).catch(() => {});
 const lowBattery = () => battery && !battery.charging && battery.level <= 0.2;
 
@@ -222,6 +230,7 @@ let lastDown = { t: 0, x: 0, y: 0 };
 
 window.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
+  if (e.target.closest && e.target.closest('#pops')) return; // 點的是彈窗，不是光球
   cursor = toGlobal(e);
   noteInteraction();
   if (pomoEnd !== null) { sqVX += 1.2; sqVY -= 1.2; return; } // 番茄鐘計時中：鎖定
@@ -255,7 +264,7 @@ function poke() {
 
 function hop(strength = 700) {
   if (settings.gravity && grounded) {
-    vel.y = -strength; vel.x += rand(-120, 120); grounded = false;
+    vel.y = -strength; grounded = false; // 原地往上跳，不往左右飄
     sqVY -= 2.5; sqVX += 2.5;
   } else {
     sqVY += 3; sqVX -= 3;
@@ -395,17 +404,21 @@ function absorb(x, y, count) {
 }
 
 let moteCarry = 0;
+let zIndex = 0;
 function emitMotes(dt) {
   if (sleepAmt <= 0.6) return;
-  moteCarry += 1.4 * dt;
+  // 睡著：右上角慢慢飄出「z z Z」，一個比一個大，往右上飄走並淡掉；三個一組，中間停一拍
+  moteCarry += dt / 0.95;
   while (moteCarry >= 1) {
     moteCarry -= 1;
-    const ang = -Math.PI / 2 + rand(-0.35, 0.35), v = rand(9, 19);
+    const i = zIndex++ % 4;
+    if (i === 3) continue;
     particles.push({
-      kind: 'spark', x: pos.x + rand(-D * 0.25, D * 0.25), y: pos.y - D * 0.3,
-      vx: Math.cos(ang) * v, vy: Math.sin(ang) * v,
-      age: 0, life: rand(2.2, 3.8), size: 24 * rand(0.14, 0.3), sizeSpeed: -0.04 * 24,
-      alpha: rand(0.7, 1), alphaSpeed: -0.32, rot: 0, spin: 0,
+      kind: 'z', ch: i === 2 ? 'Z' : 'z',
+      x: pos.x + D * 0.34, y: pos.y - D * 0.4,
+      vx: 4, vy: -8.5, age: 0, life: 3.8,
+      size: 8 + i * 2.5, sizeSpeed: 0.9,
+      alpha: 1, alphaSpeed: 0, rot: 0, spin: 0, sway: rand(0, TAU),
     });
   }
 }
@@ -570,9 +583,11 @@ function tick() {
   emitMotes(dt);
   updateParticles(dt);
 
-  if (Math.abs(pos.x - sentOrb.x) > 0.5 || Math.abs(pos.y - sentOrb.y) > 0.5 || dragging !== sentOrb.dragging) {
+  Sessions.update(now);
+  Sessions.layout({ pos, win, work, D });
+  if (Math.abs(pos.x - sentOrb.x) > 0.5 || Math.abs(pos.y - sentOrb.y) > 0.5 || dragging !== sentOrb.dragging || Sessions.consumeDirty()) {
     sentOrb = { x: pos.x, y: pos.y, dragging };
-    api.send('orb', { x: pos.x, y: pos.y, r: D * 0.5, dragging });
+    api.send('orb', { x: pos.x, y: pos.y, r: D * 0.5, dragging, rects: Sessions.rects() });
   }
   render(dt);
   lastCursor = { ...cursor };
@@ -656,11 +671,11 @@ function render(dt) {
   coreSpin += -dizzy * 14 * dt; // 內核不自轉，只有撞暈時會轉
   arcSpin += rate(Behave.innerArcPeriod) * rateScale * dt;
 
-  const dim = (1 - 0.4 * sleepAmt) * (lowBattery() ? 0.65 : 1);
+  const dim = lowBattery() ? 0.65 : 1; // 睡著不變暗（改用左上角的 Zzz 表示）
   const wobX = Math.cos(now * 9) * D * 0.08 * dizzy, wobY = Math.sin(now * 11) * D * 0.08 * dizzy;
   const coreScale = (0.92 + 0.14 * b) * (1 - 0.12 * sleepAmt) * (1 + 0.1 * happy);
   const hasArms = art.arms.length > 0;
-  const gz = hasArms ? { x: 0, y: 0 } : gaze;      // 藍色：整個準星偏向滑鼠
+  const gz = { x: 0, y: 0 };                       // 內核固定在中間，不跟滑鼠（藍色原本整個準星會偏向滑鼠）
   const par = hasArms ? { x: 0, y: 0 } : gaze;     // 橙色：外殼不位移
 
   const gx0 = pos.x - win.x, gy0 = pos.y - win.y;
@@ -705,7 +720,7 @@ function renderOrb(ctx, lx, ly, v) {
   ctx.transform(m00 * sx, m01 * sx, m01 * sy, m11 * sy, 0, 0);
 
   // 光暈
-  const glowAlpha = clamp((0.45 + 0.45 * b + 0.25 * hover + 0.45 * happy) * (1 - 0.9 * motion) * (1 - 0.5 * sleepAmt) + 0.8 * clipPulse, 0, 1.6);
+  const glowAlpha = clamp((0.45 + 0.45 * b + 0.25 * hover + 0.45 * happy) * (1 - 0.9 * motion) + 0.8 * clipPulse, 0, 1.6);
   if (glowAlpha > 0.01) {
     const gx = co * glowOff, gy = si * glowOff, gr = D * 0.95;
     const grad = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
@@ -724,8 +739,15 @@ function renderOrb(ctx, lx, ly, v) {
     ctx.drawImage(img, -S / 2, -S / 2, S, S);
     ctx.restore();
   };
-  drawImg(art.shell, par.x * 0.35, par.y * 0.35, spin, 0.85 + 0.15 * b);
+  const withSessions = Sessions.active() && art.shellPlain;
+  drawImg(withSessions ? art.shellPlain : art.shell, par.x * 0.35, par.y * 0.35, spin, 0.85 + 0.15 * b);
   if (art.mid) drawImg(art.mid, par.x * 0.65, par.y * 0.65, midSpin, 0.85 + 0.15 * b);
+  if (withSessions) { // 終端機分段弧線：跟著外殼的視差，但不自轉
+    ctx.save();
+    ctx.translate(par.x * 0.35, par.y * 0.35);
+    Sessions.draw(ctx, RPT, dim);
+    ctx.restore();
+  }
 
   if (heat > 0.01) {
     const hr = D * 0.51;
@@ -753,6 +775,10 @@ function renderOrb(ctx, lx, ly, v) {
   drawImg(art.coreBase, 0, 0, 0, coreAlpha);
   if (art.coreSpinner) drawImg(art.coreSpinner, 0, 0, arcSpin, coreAlpha);
   for (const arm of art.arms) drawImg(arm.image, 0, 0, 0, coreAlpha);
+  if (theme.coreBoost) { // 內核加亮：光暈和光絲再疊一層
+    drawImg(art.coreGlow, cgx, cgy, 0, coreAlpha * theme.coreBoost);
+    for (const arm of art.arms) drawImg(arm.image, 0, 0, 0, coreAlpha * theme.coreBoost);
+  }
 
   // 小亮點：各自隨機地往滑鼠方向聚集
   if (dotStates.length) {
@@ -794,7 +820,7 @@ function renderOrb(ctx, lx, ly, v) {
     const text = fmt(pomoEnd - now);
     const h = Behave.timerFontSize * 0.95;
     if (text !== lastTimerText) { lastTimerText = text; timerPaths = OrbArt.segmentPaths(text, h); }
-    ctx.globalAlpha = 1 - 0.6 * sleepAmt;
+    ctx.globalAlpha = 1;
     ctx.translate(-timerPaths.width / 2, h / 2);
     ctx.scale(1, -1);
     ctx.fillStyle = theme.timerColor;
@@ -802,7 +828,7 @@ function renderOrb(ctx, lx, ly, v) {
     ctx.shadowColor = theme.accent; ctx.shadowBlur = 5;
     ctx.fill(timerPaths.lit);
   } else if (themeName === 'blue') {
-    ctx.globalAlpha = 0.95 - 0.4 * sleepAmt;
+    ctx.globalAlpha = 0.95;
     ctx.font = `600 ${Behave.brandFontSize}px -apple-system, "Segoe UI", system-ui, sans-serif`;
     ctx.letterSpacing = `${(Behave.brandFontSize * 0.12).toFixed(2)}px`;
     ctx.textAlign = 'center';
@@ -826,6 +852,17 @@ function drawParticles() {
       ctx.globalAlpha = op;
       ctx.translate(x, y); ctx.rotate(p.rot);
       ctx.drawImage(p.img === 'shard' ? art.shard : art.spark, -sz / 2, -sz / 2, sz, sz);
+      ctx.restore();
+    } else if (p.kind === 'z') {
+      const t = p.age / p.life;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, p.age / 0.25) * (1 - t) * (1 - t * 0.4); // 淡入、慢慢消散
+      ctx.translate(p.x - win.x + Math.sin(p.age * 1.3 + p.sway) * 2.5, p.y - win.y);
+      ctx.font = `700 ${p.size.toFixed(1)}px -apple-system, "Segoe UI", system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.shadowColor = theme.accent; ctx.shadowBlur = 4;
+      ctx.fillStyle = theme.zColor;
+      ctx.fillText(p.ch, 0, 0);
       ctx.restore();
     } else {
       ctx.save();

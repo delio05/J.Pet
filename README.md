@@ -69,9 +69,33 @@ Claude 會讀取 [`CLAUDE.md`](CLAUDE.md)，自動檢查 Node.js、安裝相依�
 | 系統狀態 | CPU 越忙越紅、呼吸越快；低電量時變暗 |
 | 番茄鐘 | 專注 25 分鐘、休息 5 分鐘，中央顯示七段數碼管倒數；計時中光球鎖定；結束時蹦跳，跳到最高點時爆出碎片 |
 | 剪貼簿 | 複製東西時，碎片被吸進光球，接著光球「吞」一下並閃光（可關閉，不保存內容） |
+| Claude Code | 終端機裡的 Claude Code 工作階段會顯示成光球上的分段弧線；做完、等你指示、要授權時跳出小視窗（見下方[和 Claude Code 連線](#和-claude-code-連線)） |
 | 圖示 | macOS 選單列或 Windows 系統匣的「J.」：顯示或隱藏光球、番茄鐘、換色等；macOS 計時中會顯示剩餘時間 |
 
 所有功能都**不需要任何系統權限**（不需要輔助使用、螢幕錄製、麥克風等）。
+
+## 和 Claude Code 連線
+
+有裝 [Claude Code](https://code.claude.com) 的話，OrbPet 一啟動就會自動接上，之後每個終端機裡的 Claude Code 工作階段都會出現在光球上（藍色在最外圈、橙色在第二圈，一個工作階段一段弧線）。沒裝 Claude Code 也完全不影響使用。
+
+| 狀態 | 弧線 | 彈窗 |
+|---|---|---|
+| 工作中 | 亮線 | 沒有 |
+| 等你指示／請求授權 | 一明一暗 | 有，點一下把對應的終端機 App 帶到前面 |
+| 完成，還沒看 | 加粗亮線 | 有（8 秒後自己收起） |
+| 已看過 | 暗線 | 沒有 |
+
+運作方式與會動到的檔案：
+
+- OrbPet 啟動時，如果找到 `~/.claude`，會在 `~/.claude/settings.json` 的 `hooks` 裡加上 6 個事件（`SessionStart`、`UserPromptSubmit`、`PostToolUse`、`Notification`、`Stop`、`SessionEnd`）。只會新增自己的項目，不動你原有的設定；第一次修改前會備份成 `settings.json.orbpet-backup`。
+- hook 會執行 `~/.orbpet/orbpet-hook.sh`，把事件送到 OrbPet 在本機（`127.0.0.1`）開的連接埠。OrbPet 沒開時，這個腳本會立刻結束，不影響 Claude Code。
+- 事件內容只留在記憶體裡用來顯示，不存檔、不外傳。不需要任何系統權限。
+- 不想要的話：選單取消勾選「Connect to Claude Code」，會把上面加的 hooks 移除。
+- 已經開著的 Claude Code 工作階段，會在它下一次有動作時出現。
+- 點彈窗只會把終端機 App 帶到前面（tmux 會切到對應的 pane），還不能精準切到某一個分頁。
+- 目前只支援 macOS／Linux；Windows 還沒做。
+
+沒有開任何 Claude Code 工作階段時，光球上不會有弧線。
 
 ## 操作
 
@@ -96,8 +120,9 @@ Claude 會讀取 [`CLAUDE.md`](CLAUDE.md)，自動檢查 Node.js、安裝相依�
 | 檔案 | 說明 |
 |---|---|
 | `src/main.js` | Electron 主程序：透明視窗、圖示、選單、游標、CPU、剪貼簿、設定 |
+| `src/claude.js` | 和 Claude Code 連線：安裝 hooks、本機伺服器、工作階段狀態 |
 | `src/preload.js` | 主程序與畫面之間的訊息通道 |
-| `src/renderer/` | 畫面：`art.js` 負責圖案，`pet.js` 負責物理、互動和繪製 |
+| `src/renderer/` | 畫面：`art.js` 負責圖案，`pet.js` 負責物理、互動和繪製，`sessions.js` 負責終端機弧線與彈窗 |
 | `assets/` | Windows 系統匣圖示 |
 | `tools/` | 預覽圖工具（`npm run preview`） |
 | `legacy-swift/` | 舊版 macOS 原生實作（Swift），僅供參考 |

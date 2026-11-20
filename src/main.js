@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
+const claude = require('./claude');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -15,7 +16,7 @@ if (!app.requestSingleInstanceLock()) {
 const isMac = process.platform === 'darwin';
 
 // ---------- 設定（存在使用者資料夾的 settings.json） ----------
-const DEFAULT_SETTINGS = { theme: 'orange', clipboardReact: true, gravity: true };
+const DEFAULT_SETTINGS = { theme: 'orange', clipboardReact: true, gravity: true, claudeCode: true };
 let settings = { ...DEFAULT_SETTINGS };
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 
@@ -25,6 +26,7 @@ function loadSettings() {
   } catch {
     settings = { ...DEFAULT_SETTINGS };
   }
+  delete settings.demoSessions; // 舊版留下的「模擬終端機」設定，已移除
 }
 
 function saveSettings() {
@@ -98,9 +100,10 @@ function createWindow() {
   if (process.env.ORBPET_CAPTURE) {
     setTimeout(async () => {
       const bw = win.getBounds();
+      const size = Number(process.env.ORBPET_CAPTURE_SIZE || 320); // 要連彈窗一起截時可以調大，例如 760
       const rect = {
-        x: Math.max(0, Math.round(orb.x - bw.x - 160)), y: Math.max(0, Math.round(orb.y - bw.y - 160)),
-        width: 320, height: 320,
+        x: Math.max(0, Math.round(orb.x - bw.x - size / 2)), y: Math.max(0, Math.round(orb.y - bw.y - size / 2)),
+        width: size, height: size,
       };
       const img = await win.webContents.capturePage(rect);
       fs.writeFileSync(process.env.ORBPET_CAPTURE, img.toPNG({ scaleFactor: win.webContents.getZoomFactor() * (screen.getDisplayMatching(bw).scaleFactor) }));
@@ -139,7 +142,9 @@ function cursorLoop() {
     const p = screen.getCursorScreenPoint();
     if (p.x !== lastCursor.x || p.y !== lastCursor.y) { send('cursor', p); lastCursor = p; }
     const dist = Math.hypot(p.x - orb.x, p.y - orb.y);
-    setIgnore(!(dist <= orb.r || orb.dragging));
+    // 彈窗（終端機通知）也要能點
+    const onPopup = (orb.rects || []).some((r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h);
+    setIgnore(!(dist <= orb.r || orb.dragging || onPopup));
     // 滑鼠靠近光球時每 16ms 檢查，遠離時放慢，省電
     setTimeout(cursorLoop, dist < 500 || orb.dragging ? 16 : 60);
   } else {
@@ -207,34 +212,35 @@ function fmt(sec) {
 function buildMenu() {
   const act = (type) => () => send('action', type);
   const tpl = [
-    { label: hidden ? '顯示光球' : '隱藏光球', click: () => setHidden(!hidden) },
+    { label: hidden ? 'Show orb' : 'Hide orb', click: () => setHidden(!hidden) },
     { type: 'separator' },
   ];
   if (petState.pomo) {
-    tpl.push({ label: `${petState.pomo.isBreak ? '休息' : '專注'}中・剩餘 ${fmt(petState.pomo.remain)}`, enabled: false });
-    tpl.push({ label: '停止番茄鐘', click: act('stopPomodoro') });
+    tpl.push({ label: `${petState.pomo.isBreak ? 'Break' : 'Focus'} · ${fmt(petState.pomo.remain)} left`, enabled: false });
+    tpl.push({ label: 'Stop Pomodoro', click: act('stopPomodoro') });
   } else {
-    tpl.push({ label: '開始專注 25 分鐘', click: act('startFocus') });
-    tpl.push({ label: '開始休息 5 分鐘', click: act('startBreak') });
+    tpl.push({ label: 'Start focus (25 min)', click: act('startFocus') });
+    tpl.push({ label: 'Start break (5 min)', click: act('startBreak') });
   }
   const bat = petState.battery;
-  const batText = bat ? `・電量 ${Math.round(bat.level * 100)}%${bat.charging ? '（充電中）' : ''}` : '';
+  const batText = bat ? ` · Battery ${Math.round(bat.level * 100)}%${bat.charging ? ' (charging)' : ''}` : '';
   tpl.push(
     { type: 'separator' },
     { label: `CPU ${Math.round(petState.cpu * 100)}%${batText}`, enabled: false },
     { type: 'separator' },
     {
-      label: '顏色',
+      label: 'Color',
       submenu: [
-        { label: '橙色光球', type: 'radio', checked: settings.theme === 'orange', click: () => setSetting('theme', 'orange') },
-        { label: '藍色光環', type: 'radio', checked: settings.theme === 'blue', click: () => setSetting('theme', 'blue') },
+        { label: 'Orange orb', type: 'radio', checked: settings.theme === 'orange', click: () => setSetting('theme', 'orange') },
+        { label: 'Blue ring', type: 'radio', checked: settings.theme === 'blue', click: () => setSetting('theme', 'blue') },
       ],
     },
-    { label: '剪貼簿反應', type: 'checkbox', checked: settings.clipboardReact, click: () => setSetting('clipboardReact', !settings.clipboardReact) },
-    { label: '重力', type: 'checkbox', checked: settings.gravity, click: () => setSetting('gravity', !settings.gravity) },
-    { label: '回到螢幕中央', click: act('recenter') },
+    { label: 'Clipboard reaction', type: 'checkbox', checked: settings.clipboardReact, click: () => setSetting('clipboardReact', !settings.clipboardReact) },
+    { label: 'Gravity', type: 'checkbox', checked: settings.gravity, click: () => setSetting('gravity', !settings.gravity) },
+    claudeMenuItem(),
+    { label: 'Back to center', click: act('recenter') },
     { type: 'separator' },
-    { label: '退出', click: () => app.quit() },
+    { label: 'Quit', click: () => app.quit() },
   );
   return Menu.buildFromTemplate(tpl);
 }
@@ -242,7 +248,25 @@ function buildMenu() {
 function setSetting(key, value) {
   settings[key] = value;
   saveSettings();
+  if (key === 'claudeCode') claude.setEnabled(value);
   send('settings', settings);
+}
+
+// ---------- Claude Code 連線（細節在 src/claude.js） ----------
+function claudeMenuItem() {
+  if (!claude.supported) return { label: 'Claude Code (not available on Windows yet)', enabled: false };
+  if (!claude.claudeInstalled()) return { label: 'Claude Code (not installed)', enabled: false };
+  const note = settings.claudeCode && claude.getStatus() === 'error' ? ' (could not set up)' : '';
+  return { label: `Connect to Claude Code${note}`, type: 'checkbox', checked: settings.claudeCode, click: () => setSetting('claudeCode', !settings.claudeCode) };
+}
+
+function startClaude() {
+  claude.setListener((msg) => send('sessions', msg));
+  if (settings.claudeCode) claude.setEnabled(true);
+  // 之後才裝 Claude Code 的話，不用重開 OrbPet 也會接上
+  setInterval(() => {
+    if (settings.claudeCode && claude.getStatus() === 'absent' && claude.claudeInstalled()) claude.setEnabled(true);
+  }, 60000);
 }
 
 // ---------- 選單列（macOS）/ 系統匣（Windows）圖示 ----------
@@ -282,6 +306,8 @@ ipcMain.on('menu', () => {
   buildMenu().popup({ window: win });
 });
 ipcMain.on('requestShow', () => setHidden(false));
+ipcMain.on('sessionsSync', () => claude.resend());
+ipcMain.on('openTerminal', (_e, id) => { if (typeof id === 'string') claude.openTerminal(id); });
 
 // ---------- 啟動 ----------
 app.whenReady().then(() => {
@@ -289,6 +315,7 @@ app.whenReady().then(() => {
   loadSettings();
   createWindow();
   createTray();
+  startClaude();
   cursorLoop();
   setInterval(cpuLoop, 2000);
   setInterval(clipboardLoop, 400);
@@ -302,3 +329,6 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => app.quit());
+app.on('will-quit', () => claude.shutdown());
+// 從終端機按 Ctrl+C 或關掉視窗結束時，也要走正常的結束流程（刪掉 port 檔）
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => app.quit());

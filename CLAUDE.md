@@ -9,9 +9,11 @@ OrbPet：桌面光球寵物，支援 **macOS 與 Windows**。用 Electron 寫成
 | 檔案 | 內容 |
 |---|---|
 | `src/main.js` | 主程序：透明視窗、選單列（macOS）或系統匣（Windows）圖示、右鍵選單、游標追蹤與點擊穿透、CPU、剪貼簿偵測、設定存檔 |
+| `src/claude.js` | 和 Claude Code 連線：在 `~/.claude/settings.json` 安裝 hooks、開本機伺服器（127.0.0.1）收事件、維護工作階段狀態 |
 | `src/preload.js` | 主程序與畫面之間允許使用的訊息通道 |
 | `src/renderer/art.js` | 光球圖案（程式繪製，固定亂數種子）、主題、七段數碼管 |
 | `src/renderer/pet.js` | 物理、互動、番茄鐘、碎片、繪製；開頭的 `Cfg`、`Behave` 是可調參數 |
+| `src/renderer/sessions.js` | 終端機工作階段的畫面：光球上的分段弧線、懸浮彈窗；開頭的 `SessCfg`、`LOOK` 是可調參數 |
 | `tools/` | `npm run preview`：把圖案輸出成大張預覽圖 |
 | `legacy-swift/` | 舊版 macOS 原生 Swift 實作，僅供參考，已不再維護 |
 
@@ -47,6 +49,7 @@ OrbPet：桌面光球寵物，支援 **macOS 與 Windows**。用 Electron 寫成
 ## 注意事項
 
 - 不要新增需要系統權限的功能（輔助使用、螢幕錄製、麥克風、日曆），除非使用者明確要求並了解要授權什麼。
+- Claude Code 連線會修改使用者的 `~/.claude/settings.json`（只增減自己的 hooks，第一次會備份）。改 `src/claude.js` 時維持三件事：沒裝 Claude Code 就什麼都不做；OrbPet 沒開時 hook 立刻結束；事件內容不存檔、不外傳。測試時請把 `HOME` 指到暫存資料夾，不要動到真的設定。
 - 剪貼簿只比對雜湊判斷「有沒有變」，不保存、不傳送內容；請維持這個做法。
 - 點擊穿透靠主程序的 `setIgnoreMouseEvents`：游標在光球半徑內、或正在拖拽時，視窗才接收滑鼠。
 - 設定存在 Electron 的 userData 資料夾裡的 `settings.json`（macOS：`~/Library/Application Support/orbpet/`；Windows：`%APPDATA%\orbpet\`）。

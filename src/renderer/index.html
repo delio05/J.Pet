@@ -8,12 +8,31 @@
     html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; user-select: none; }
     canvas { position: fixed; left: 0; top: 0; display: block; }
     #orb { will-change: transform; }
+    /* 終端機通知彈窗 */
+    #pops { position: fixed; left: 0; top: 0; z-index: 2; display: none; flex-direction: column; gap: 6px; width: 236px; will-change: transform;
+      font-family: -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+      --bd: rgba(255,179,71,0.5); --bg: rgba(24,13,4,0.55); --acc: #FFD08A; } /* --bg：半透明底 */
+    #pops[data-theme="blue"] { --bd: rgba(70,165,255,0.5); --bg: rgba(6,17,28,0.55); --acc: #8FD0FF; }
+    .jp-pop { all: unset; box-sizing: border-box; width: 100%; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+      background: var(--bg); border: 1px solid var(--bd); border-radius: 8px; color: #E8EEF4; cursor: pointer; text-shadow: 0 1px 2px rgba(0,0,0,0.6); animation: jp-in 0.18s ease-out; }
+    .jp-pop:hover { border-color: var(--acc); }
+    .jp-top { display: flex; align-items: baseline; gap: 8px; }
+    .jp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: #F4F8FB; }
+    .jp-status { font-size: 12px; color: var(--acc); white-space: nowrap; }
+    .jp-line { font-size: 12px; line-height: 1.45; color: #E3EAF1; overflow-wrap: anywhere; }
+    .jp-mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    .jp-foot { display: flex; gap: 8px; font-size: 11px; color: #B4BFCB; }
+    .jp-meta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    @keyframes jp-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+    @media (prefers-reduced-motion: reduce) { .jp-pop { animation: none; } }
   </style>
 </head>
 <body>
   <canvas id="fx"></canvas>
   <canvas id="orb"></canvas>
+  <div id="pops"></div>
   <script src="art.js"></script>
+  <script src="sessions.js"></script>
   <script src="pet.js"></script>
 </body>
 </html>

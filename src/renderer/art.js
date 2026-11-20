@@ -27,7 +27,8 @@ function mk(n) {
 
 const rgba = (r, g, b, a) => `rgba(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)},${a})`;
 const orbColor = (t, a) => rgba(1, 0.42 + 0.4 * t, 0.04 + 0.22 * t * t, a);
-const blueColor = (t, a) => rgba(0.1 + 0.7 * t * t, 0.5 + 0.48 * t, 1, a);
+// t 越大越亮。紅、綠分量壓低一點，亮的地方才是飽和的藍，不會發白
+const blueColor = (t, a) => rgba(0.04 + 0.42 * t * t, 0.36 + 0.44 * t, 1, a);
 
 function radial(ctx, cx, cy, radius, stops) {
   const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
@@ -44,7 +45,7 @@ function stroke(ctx, col, w) {
 
 // ---------------- 橙色光球 ----------------
 
-function drawShell(n = 512) {
+function drawShell(n = 512, midAlpha = 0.68) {
   const { c, ctx } = mk(n);
   const rng = new RNG(20261119);
   const C = n / 2, R = n * 0.44;
@@ -70,7 +71,7 @@ function drawShell(n = 512) {
     }
   };
   sphere(2600, R, 1);
-  sphere(900, R * 0.56, 0.68, 0.7); // 中圈：比外圈淡，色調稍深
+  sphere(900, R * 0.56, midAlpha, 0.7); // 中圈：比外圈淡，色調稍深
 
   // 徑向光絲
   for (let i = 0; i < 170; i++) {
@@ -174,7 +175,7 @@ function drawCoreParts(n = 512) {
 
 // ---------------- 藍色光環 ----------------
 
-function drawBlueShell(n = 512) {
+function drawBlueShell(n = 512, outerArcs = true) {
   const { c, ctx } = mk(n);
   const rng = new RNG(77);
   const C = n / 2, R = n * 0.44;
@@ -205,7 +206,10 @@ function drawBlueShell(n = 512) {
   ctx.lineCap = 'round';
 
   ctx.shadowColor = blueColor(0.6, 0.9); ctx.shadowBlur = 12;
-  for (let i = 0; i < 3; i++) arc(R * 0.975, rng.r(0, 2 * Math.PI), rng.r(0.35, 0.9), 4, blueColor(0.85, 0.95));
+  for (let i = 0; i < 3; i++) {
+    const a0 = rng.r(0, 2 * Math.PI), span = rng.r(0.35, 0.9); // 不畫也要取亂數，後面的圖案才不會變
+    if (outerArcs) arc(R * 0.975, a0, span, 4, blueColor(0.85, 0.95));
+  }
   for (let i = 0; i < 4; i++) arc(R * 0.8, rng.r(0, 2 * Math.PI), rng.r(0.15, 0.45), 2.5, blueColor(0.7, 0.8));
   return c;
 }
@@ -302,11 +306,14 @@ const THEMES = {
     glowStops: [[0, rgba(1, 0.62, 0.15, 0.28)], [0.45, rgba(1, 0.5, 0.08, 0.07)], [1, rgba(1, 0.45, 0, 0)]], // 光暈輕、往外淡出
     accent: rgba(0.78, 0.3, 0.02, 1),
     timerColor: rgba(1, 0.97, 0.9, 1),
+    coreBoost: 0.6,   // 內核再疊一層的強度：越大越亮，0 = 不加亮
+    zColor: rgba(1, 0.9, 0.68, 1),
     spin: { shell: 40, mid: 0 },
     build() {
       const core = drawCoreParts();
       return {
         shell: drawShell(), mid: null,
+        shellPlain: drawShell(512, 0.38), // 有終端機工作階段時用：中圈調暗，讓位給分段弧線
         coreGlow: core.glow, coreBase: core.base, coreSpinner: null, arms: core.arms, dots: core.dots,
         spark: makeSpark(rgba(1, 0.97, 0.8, 1), rgba(1, 0.7, 0.15, 1), rgba(0.95, 0.45, 0, 0.85), rgba(0.95, 0.45, 0, 0)),
         shard: makeShard(rgba(0.95, 0.42, 0, 1), rgba(1, 0.93, 0.6, 1)),
@@ -317,11 +324,14 @@ const THEMES = {
     glowStops: [[0, rgba(0.25, 0.7, 1, 0.28)], [0.45, rgba(0.1, 0.5, 1, 0.07)], [1, rgba(0.05, 0.4, 1, 0)]],
     accent: rgba(0.04, 0.36, 0.85, 1),
     timerColor: rgba(0.92, 0.98, 1, 1),
+    coreBoost: 0,
+    zColor: rgba(0.85, 0.97, 1, 1),
     spin: { shell: 60, mid: -22 },
     build() {
       const core = drawBlueCoreParts();
       return {
         shell: drawBlueShell(), mid: drawBlueMid(),
+        shellPlain: drawBlueShell(512, false), // 有終端機工作階段時用：最外圈三段亮弧換成分段弧線
         coreGlow: core.glow, coreBase: core.base, coreSpinner: core.arcs, arms: [], dots: [],
         spark: makeSpark(rgba(0.9, 1, 1, 1), rgba(0.35, 0.85, 1, 1), rgba(0.05, 0.4, 0.9, 0.85), rgba(0.05, 0.4, 0.9, 0)),
         shard: makeShard(rgba(0.05, 0.4, 0.88, 1), rgba(0.75, 0.97, 1, 1)),

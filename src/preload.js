@@ -2,8 +2,8 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 
-const IN = ['cursor', 'cpu', 'clipboard', 'settings', 'display', 'action', 'hidden'];
-const OUT = ['orb', 'state', 'menu', 'requestShow'];
+const IN = ['cursor', 'cpu', 'clipboard', 'settings', 'display', 'action', 'hidden', 'sessions'];
+const OUT = ['orb', 'state', 'menu', 'requestShow', 'sessionsSync', 'openTerminal'];
 
 contextBridge.exposeInMainWorld('orbpet', {
   on: (channel, cb) => {
