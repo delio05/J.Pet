@@ -99,6 +99,8 @@ function createWindow() {
     win.showInactive();
     // 除錯：ORBPET_DEMO_POMO=秒數 → 啟動後馬上開始一個很短的番茄鐘
     if (process.env.ORBPET_DEMO_POMO) send('action', `debugPomo:${process.env.ORBPET_DEMO_POMO}`);
+    // 除錯：ORBPET_DEMO_ACTION=debugScan 或 debugSay → 啟動 2 秒後觸發一次掃描或自言自語
+    if (process.env.ORBPET_DEMO_ACTION) setTimeout(() => send('action', process.env.ORBPET_DEMO_ACTION), 2000);
     // 除錯：ORBPET_DEMO_SLEEP=秒數 → 啟動後馬上睡著，過這麼多秒再叫醒
     if (process.env.ORBPET_DEMO_SLEEP) {
       send('action', 'debugSleep');

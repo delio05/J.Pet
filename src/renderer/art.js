@@ -367,6 +367,80 @@ function drawHat(color, n = 1024) {
   return c;
 }
 
+// ---------------- 番茄鐘齒輪 ----------------
+// 球邊齒圈：光球右上那段邊緣是一圈外齒，一個小齒輪咬在上面沿著球邊來回滾。
+// 兩者用同樣的齒距和齒高才咬得起來。回傳的 Path2D 單位是 px，中心在原點，每幀旋轉後描邊。
+const GEAR_PITCH = 5.6; // 齒距（節圓上相鄰兩齒的距離，px）
+const GEAR_DEPTH = 2.6; // 齒高
+function makeGear(teeth, spokes) {
+  const pitchR = (teeth * GEAR_PITCH) / (Math.PI * 2);
+  const ro = pitchR + GEAR_DEPTH / 2, ri = pitchR - GEAR_DEPTH / 2;
+  const step = (Math.PI * 2) / teeth;
+  const outline = new Path2D();
+  for (let i = 0; i < teeth; i++) {
+    const a = i * step; // 齒的中心在角度 a
+    [[ri, a - step * 0.5], [ri, a - step * 0.3], [ro, a - step * 0.17], [ro, a + step * 0.17], [ri, a + step * 0.3]]
+      .forEach(([r, t], j) => (i || j ? outline.lineTo(Math.cos(t) * r, Math.sin(t) * r) : outline.moveTo(Math.cos(t) * r, Math.sin(t) * r)));
+  }
+  outline.closePath();
+  const detail = new Path2D();
+  if (spokes) {
+    const rim = pitchR * 0.62, hub = Math.max(1.6, pitchR * 0.2);
+    detail.moveTo(rim, 0); detail.arc(0, 0, rim, 0, Math.PI * 2);
+    detail.moveTo(hub, 0); detail.arc(0, 0, hub, 0, Math.PI * 2);
+    for (let i = 0; i < spokes; i++) {
+      const t = (i * Math.PI * 2) / spokes, c = Math.cos(t), s = Math.sin(t);
+      detail.moveTo(c * hub, s * hub); detail.lineTo(c * rim, s * rim);
+    }
+  }
+  return { outline, detail, teeth, pitchR, ro, ri };
+}
+
+/** ringTeeth：齒圈齒數（決定齒圈半徑）；span：齒圈露出的角度範圍 [起, 迄]（弧度，0 = 右、-π/2 = 上） */
+function gearArc(ringTeeth = 58, rollerTeeth = 9, span = [-Math.PI / 2 - 0.12, 0.12]) {
+  const ring = makeGear(ringTeeth, 0), roller = makeGear(rollerTeeth, 3);
+  const T1 = ring.teeth, T2 = roller.teeth;
+  return {
+    ring, roller, span,
+    /** ringAngle：齒圈轉過的角度；at：小齒輪在球邊的位置角。回傳小齒輪中心與它自己的轉角（齒剛好卡進齒圈的齒縫） */
+    rollerAt(ringAngle, at) {
+      const d = ring.pitchR + roller.pitchR;
+      return { x: Math.cos(at) * d, y: Math.sin(at) * d, angle: at + Math.PI + Math.PI / T2 - (ringAngle - at) * (T1 / T2) };
+    },
+    draw(ctx, ringAngle, at, theme, flash, withRoller = true) {
+      const [a0, a1] = span;
+      // 齒圈：只露出右上那一段，兩端用扇形裁掉
+      ctx.save();
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, ring.ro + 4, a0, a1); ctx.closePath(); ctx.clip();
+      ctx.rotate(ringAngle);
+      ctx.shadowColor = theme.accent; ctx.shadowBlur = 3;
+      ctx.strokeStyle = theme.gearColor; ctx.lineWidth = 0.9;
+      ctx.stroke(ring.outline);
+      ctx.restore();
+      // 齒圈內側一條細線當輪轂，兩端各一個小端蓋
+      ctx.strokeStyle = theme.gearDim; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.arc(0, 0, ring.ri - 1.6, a0, a1); ctx.stroke();
+      for (const a of [a0, a1]) {
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * (ring.ri - 3), Math.sin(a) * (ring.ri - 3));
+        ctx.lineTo(Math.cos(a) * (ring.ro + 1), Math.sin(a) * (ring.ro + 1));
+        ctx.stroke();
+      }
+      // 小齒輪
+      if (!withRoller) return;
+      const r = this.rollerAt(ringAngle, at);
+      ctx.save();
+      ctx.translate(r.x, r.y); ctx.rotate(r.angle);
+      ctx.strokeStyle = theme.gearDim; ctx.lineWidth = 0.6;
+      ctx.stroke(roller.detail);
+      ctx.shadowColor = theme.accent; ctx.shadowBlur = 3 + 4 * flash;
+      ctx.strokeStyle = theme.gearColor; ctx.lineWidth = 0.9;
+      ctx.stroke(roller.outline);
+      ctx.restore();
+    },
+  };
+}
+
 // ---------------- 碎片圖 ----------------
 
 function makeSpark(core, mid, edge, edge0) {
@@ -393,6 +467,7 @@ const THEMES = {
     glowStops: [[0, rgba(1, 0.62, 0.15, 0.28)], [0.45, rgba(1, 0.5, 0.08, 0.07)], [1, rgba(1, 0.45, 0, 0)]], // 光暈輕、往外淡出
     accent: rgba(0.78, 0.3, 0.02, 1),
     timerColor: rgba(1, 0.97, 0.9, 1),
+    gearColor: rgba(1, 0.78, 0.4, 1), gearDim: rgba(1, 0.6, 0.2, 0.55), // 番茄鐘齒輪：外框、細節
     coreBoost: 0.6,   // 內核再疊一層的強度：越大越亮，0 = 不加亮
     zColor: rgba(1, 0.9, 0.68, 1),
     spin: { shell: 40, mid: 0 },
@@ -412,6 +487,7 @@ const THEMES = {
     glowStops: [[0, rgba(0.25, 0.7, 1, 0.28)], [0.45, rgba(0.1, 0.5, 1, 0.07)], [1, rgba(0.05, 0.4, 1, 0)]],
     accent: rgba(0.04, 0.36, 0.85, 1),
     timerColor: rgba(0.92, 0.98, 1, 1),
+    gearColor: rgba(0.55, 0.85, 1, 1), gearDim: rgba(0.3, 0.65, 1, 0.55),
     coreBoost: 0,
     zColor: rgba(0.85, 0.97, 1, 1),
     spin: { shell: 60, mid: -22 },
@@ -503,4 +579,4 @@ function hatBody() {
   };
 }
 
-window.OrbArt = { getArt, THEMES, segmentPaths, hatBody };
+window.OrbArt = { getArt, THEMES, segmentPaths, hatBody, gearArc, makeGear };

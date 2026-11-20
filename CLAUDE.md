@@ -43,6 +43,7 @@ OrbPet：桌面光球寵物，支援 **macOS 與 Windows**。用 Electron 寫成
   - `ORBPET_DEBUG=1 npm start`：把畫面端的錯誤印到終端機，每 3 秒印一次光球狀態。
   - `ORBPET_CAPTURE=/絕對路徑/out.png npm start`：4 秒後把光球附近 320×320 的畫面存成 PNG。用 `ORBPET_CAPTURE_DELAY=毫秒` 可以調整等待時間。截圖是透明背景。
   - `ORBPET_DEMO_POMO=10 npm start`：一啟動就開始 10 秒的番茄鐘，可以搭配截圖檢查倒數與慶祝效果。
+  - `ORBPET_DEMO_ACTION=debugScan npm start`（或 `debugSay`、`debugThink`）：啟動 2 秒後觸發一次掃描、自言自語，或思考 6 秒。
   - `ORBPET_DEMO_SLEEP=6 npm start`：一啟動就睡著（會戴上聖誕帽），6 秒後叫醒，可以搭配截圖檢查帽子掉落。
 - 拖拽、手感這類動態效果，無法從截圖判斷，改完請使用者實際試。
 - 效能：平靜時以 `CALM_FPS`（預設 20）更新，動起來才用 60fps。不要改回全螢幕每幀重畫（GPU 會吃很重）。光球畫在小畫布 `#orb` 上，用 CSS 位移；碎片畫在全螢幕畫布 `#fx` 上，沒有碎片時不重畫。
@@ -54,5 +55,5 @@ OrbPet：桌面光球寵物，支援 **macOS 與 Windows**。用 Electron 寫成
 - 剪貼簿只比對雜湊判斷「有沒有變」，不保存、不傳送內容；請維持這個做法。
 - 點擊穿透靠主程序的 `setIgnoreMouseEvents`：游標在光球半徑內、或正在拖拽時，視窗才接收滑鼠。
 - 設定存在 Electron 的 userData 資料夾裡的 `settings.json`（macOS：`~/Library/Application Support/orbpet/`；Windows：`%APPDATA%\orbpet\`）。
-- 藍色主題中央文字是 `Behave.brandText`，見 README 的免責聲明。
+- 藍色主題中央文字是 `Behave.brandText`、思考動畫的摩斯電碼句子是 `Behave.morsePhrases`，兩者都和鋼鐵俠相關，見 README 的免責聲明。
 - Windows 版是用 Electron 跨平台 API 寫的，但作者只在 macOS 上實測過。Windows 使用者回報問題時，優先檢查三件事：系統匣圖示、透明視窗、點擊穿透。

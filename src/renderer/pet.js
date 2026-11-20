@@ -49,7 +49,14 @@ const Behave = {
   mutterGap: [300, 600],    // 自言自語：兩句之間至少隔幾秒（在這個範圍內隨機）。調大 = 更少說話
   mutterSeconds: 3.6,       // 一句話停留幾秒
   hat: true,               // 睡著時戴聖誕帽，被叫醒時帽子掉到地上再消失
-  dodgeSpeed: 150,          // 躲開時的橫向速度（落地時大約會滑開 40px）
+  dodgeSpeed: 150,
+  scanAfter: 1.6,
+  thinkChance: 0.5,         // 沒人理到 sleepAfter 秒時：這個機率先「思考」，否則直接睡
+  thinkSeconds: [18, 35],   // 思考多久（秒，範圍內隨機）
+  thinkAgain: [30, 70],     // 想完之後再過幾秒，重新決定要睡還是再想一次
+  // 思考時在球裡一行一行打出摩斯電碼（每個字一行）。致敬用，見 README 的免責聲明；想換成自己的字直接改這裡（A–Z、0–9、空白）
+  morsePhrases: ['JARVIS', 'STARK', 'IRON MAN', 'ARC REACTOR', 'MARK 42', 'I AM IRON MAN', 'SUIT UP', 'PROTOCOL'],
+  morseUnit: 0.075,         // 打一個摩斯單位要幾秒（越小打越快）           // 滑鼠停在球上幾秒後掃描一次          // 躲開時的橫向速度（落地時大約會滑開 40px）
 };
 
 const D = Cfg.orbDiameter;
@@ -73,7 +80,9 @@ const LINES = {
   poked: ['Yes?', 'I felt that.'],                                           // 被戳到躲開
   woken: ['Back online.'],
   welcome: ['Welcome back.'],                                                // 電腦解鎖／喚醒，離開 5 分鐘以上
-  welcomeLong: ['Been a while.'],                                            // 離開 3 小時以上                                                   // 被叫醒
+  welcomeLong: ['Been a while.'],                                            // 離開 3 小時以上
+  idle: ['Still here.', 'Systems nominal.', 'Just thinking.', 'Quiet shift.'], // 其他情境都不符合時
+  sleepy: ['…recalibrating.', 'Mm. Five more minutes.', '…still here.'],     // 睡著時的夢話（不會醒）
 };
 
 // ======================== 狀態 ========================
@@ -120,6 +129,12 @@ let cpu = 0, heat = 0;
 let battery = null;
 
 let pomoEnd = null, pomoDuration = 1, pomoIsBreak = false;
+const gears = OrbArt.gearArc();
+let gearAmt = 0, gearAngle = 0, gearTick = -1, gearSince = 9, gearAt = 0, gearEjected = false;
+let hoverStill = 0, scanAt = -9, scanDone = false; // 滑鼠停在球上：停了多久、掃描開始時間、這次停留掃過了沒
+let wasAsleep = false;
+let thinking = false, thinkStart = 0, thinkEnd = 0, thinkAmt = 0, ideaAt = -9; // 思考：開始、結束時間、出現程度、想通的那一刻
+let morse = null; // 正在打的那一句：{ text, lines: [{ els, units }], total, start } // 番茄鐘齒輪：出現程度、大齒輪角度、第幾格、距離上一格幾秒
 let alarmUntil = 0, nextAlarmHop = 0, hopSide = 1, firstCelebrateHop = false;
 let apexBurstCount = 0, apexBurstAt = 0;
 let clipFlashAt = 0, clipPulse = 0;
@@ -252,6 +267,9 @@ api.on('welcome', (awaySeconds) => {
 
 api.on('action', (type) => {
   if (type === 'debugSleep') { lastInteraction = now - Behave.sleepAfter - 1; return; } // 除錯：馬上睡著
+  if (type === 'debugScan') { scanAt = now; return; }
+  if (type === 'debugThink') { lastInteraction = now - Behave.sleepAfter - 1; startThinking(6); return; } // 除錯：想 6 秒                              // 除錯：掃描一次
+  if (type === 'debugSay') { nextMutterAt = 0; lastInteraction = now - 10; return; } // 除錯：馬上自言自語
   noteInteraction();
   if (type === 'startFocus') startPomodoro(Behave.focusMinutes, false);
   else if (type === 'startBreak') startPomodoro(Behave.breakMinutes, true);
@@ -364,7 +382,7 @@ function say(list) {
   return true;
 }
 
-// 閒下來時（沒人理 20 秒以上、還沒睡著）看情境挑一句；兩句之間至少隔 mutterGap
+// 看情境挑一句；兩句之間隔 mutterGap。睡著時說夢話
 function pickMutter() {
   const st = Sessions.stats();
   if (lowBattery() && now - batterySaidAt > 1200) { batterySaidAt = now; return LINES.battery; }
@@ -375,7 +393,90 @@ function pickMutter() {
   if (d.getHours() < 5 && lateSaidOn !== d.toDateString()) { lateSaidOn = d.toDateString(); return LINES.late; }
   if (st.total > 0 && st.work === st.total) return LINES.running;
   if (st.total === 0) return LINES.quiet;
-  return null;
+  return LINES.idle;
+}
+
+// ---- 思考：在球裡打摩斯電碼 ----
+const MORSE = {
+  A: '.-', B: '-...', C: '-.-.', D: '-..', E: '.', F: '..-.', G: '--.', H: '....', I: '..', J: '.---', K: '-.-', L: '.-..', M: '--',
+  N: '-.', O: '---', P: '.--.', Q: '--.-', R: '.-.', S: '...', T: '-', U: '..-', V: '...-', W: '.--', X: '-..-', Y: '-.--', Z: '--..',
+  0: '-----', 1: '.----', 2: '..---', 3: '...--', 4: '....-', 5: '.....', 6: '-....', 7: '--...', 8: '---..', 9: '----.',
+};
+// 一個字 → 點劃清單（標準時序：點 1 單位、劃 3 單位、同一字母內間隔 1、字母之間間隔 3）
+function encodeWord(word) {
+  const els = [];
+  let u = 0;
+  [...word].forEach((ch, ci) => {
+    const code = MORSE[ch];
+    if (!code) return;
+    if (ci > 0) u += 2; // 加上前一個元素後的 1 → 共 3
+    [...code].forEach((m, mi) => {
+      if (mi > 0) u += 1;
+      const len = m === '-' ? 3 : 1;
+      els.push({ dash: m === '-', u, len });
+      u += len;
+    });
+  });
+  return { els, units: u };
+}
+function nextMorse(at) {
+  const list = Behave.morsePhrases.filter((t) => !morse || t !== morse.text);
+  const text = list[Math.floor(Math.random() * list.length)].toUpperCase();
+  const lines = text.split(/\s+/).filter(Boolean).slice(0, 4).map(encodeWord);
+  morse = { text, lines, total: lines.reduce((t, l) => t + l.units + 4, 0), start: at };
+}
+const MORSE_HOLD = 1.4, MORSE_FADE = 0.45; // 打完停多久、淡出多久
+
+function startThinking(seconds) {
+  thinking = true; thinkStart = now; thinkEnd = now + seconds;
+  nextMorse(now);
+}
+// 想通了：光球閃一下，偶爾把剛剛打的那句「翻譯」說出來。之後再等一陣子重新選要睡還是再想
+function finishThinking() {
+  thinking = false; ideaAt = now;
+  clipPulse = Math.max(clipPulse, 0.6);
+  if (morse && Math.random() < 0.6) say([morse.text]);
+  lastInteraction = now - Behave.sleepAfter + rand(Behave.thinkAgain[0], Behave.thinkAgain[1]);
+}
+
+// 在本體座標裡畫（球心在原點），只畫在球裡
+function drawThinking(ctx) {
+  if (thinkAmt < 0.01 || !morse) return;
+  const typeTime = morse.total * Behave.morseUnit;
+  let t = now - morse.start;
+  if (thinking && t > typeTime + MORSE_HOLD + MORSE_FADE) { nextMorse(now); t = 0; } // 下一句
+  const fade = t > typeTime + MORSE_HOLD ? 1 - (t - typeTime - MORSE_HOLD) / MORSE_FADE : 1;
+  let typed = t / Behave.morseUnit; // 已經打了幾個單位
+  const R = RPT * 0.92, lh = 9.5, n = morse.lines.length;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.clip();
+  ctx.globalAlpha = clamp(fade, 0, 1) * Math.min(1, thinkAmt * 1.5);
+  ctx.strokeStyle = theme.gearColor; ctx.fillStyle = theme.gearColor;
+  ctx.shadowColor = theme.accent; ctx.shadowBlur = 3;
+  ctx.lineCap = 'round';
+  morse.lines.forEach((line, i) => {
+    const y = (i - (n - 1) / 2) * lh;
+    const chord = 2 * Math.sqrt(Math.max(0, R * R - y * y)) * 0.84;
+    const unit = Math.min(1.7, chord / line.units);
+    const x0 = -(line.units * unit) / 2;
+    const done = Math.max(0, Math.min(line.units, typed));
+    for (const el of line.els) {
+      if (el.u >= done) break;
+      if (el.dash) {
+        const end = Math.min(el.u + el.len, done);
+        ctx.lineWidth = 1.3;
+        ctx.beginPath(); ctx.moveTo(x0 + (el.u + 0.5) * unit, y); ctx.lineTo(x0 + (end - 0.5) * unit, y); ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.arc(x0 + (el.u + 0.5) * unit, y, 0.95, 0, TAU); ctx.fill();
+      }
+    }
+    // 游標：正在打的那一行尾巴閃
+    if (typed > 0 && typed < line.units + 4 && Math.sin(now * 12) > 0) {
+      ctx.fillRect(x0 + done * unit + 1.2, y - 3.5, 1, 7);
+    }
+    typed -= line.units + 4;
+  });
+  ctx.restore();
 }
 
 function updateMutter() {
@@ -389,8 +490,10 @@ function updateMutter() {
     return;
   }
   const idle = now - lastInteraction;
-  if (now < nextMutterAt || asleep || dragging || pomoEnd !== null || idle < 20 || now < alarmUntil) return;
-  if (!say(pickMutter())) nextMutterAt = now + 60; // 這次沒話說，一分鐘後再看
+  // 原本要「沒人理 20 秒以上、而且還沒睡著」才會說話，但 90 秒就睡著了，平常幾乎碰不到這個空檔。
+  // 現在只避開正在互動（5 秒內）、拖拽、番茄鐘、慶祝；睡著時改說夢話
+  if (now < nextMutterAt || dragging || thinking || pomoEnd !== null || idle < 5 || now < alarmUntil) return;
+  if (!say(asleep ? LINES.sleepy : pickMutter())) nextMutterAt = now + 60; // 這次沒說成，一分鐘後再看
 }
 
 function hop(strength = 700) {
@@ -424,6 +527,7 @@ function startPomodoro(minutes, isBreak) {
   pomoDuration = minutes * 60;
   pomoEnd = now + pomoDuration;
   pomoIsBreak = isBreak;
+  gearEjected = false;
   alarmUntil = 0;
   hop(500);
 }
@@ -447,6 +551,7 @@ function chime() {
 function checkPomodoroEnd() {
   if (pomoEnd !== null && now >= pomoEnd) {
     pomoEnd = null;
+    ejectGear();
     alarmUntil = now + Behave.celebrateSeconds;
     nextAlarmHop = now;
     firstCelebrateHop = true;
@@ -569,12 +674,29 @@ function dropHat() {
   });
 }
 
+// 番茄鐘結束：齒圈把小齒輪彈出去，和帽子一樣當剛體掉到地上（會滾、會彈），停下後淡掉
+function ejectGear() {
+  if (gearEjected || gearAmt < 0.3) return;
+  gearEjected = true;
+  const r = gears.rollerAt(gearAngle, gearAt), g = gears.roller;
+  const out = { x: Math.cos(gearAt), y: Math.sin(gearAt) };
+  const sp = rand(260, 340);
+  const tips = [];
+  for (let i = 0; i < g.teeth; i++) { const a = (i * TAU) / g.teeth; tips.push([Math.cos(a) * g.ro, Math.sin(a) * g.ro]); }
+  const body = HatFall.create({
+    x: pos.x + r.x, y: pos.y + r.y, vx: out.x * sp, vy: out.y * sp - 260,
+    w: rand(8, 14), hull: tips, baseAngle: r.angle, gyration: g.pitchR * 0.75,
+  });
+  particles.push({ kind: 'gear', body, x: body.x, y: body.y, restAt: 0, age: 0, life: 15, alpha: 1, alphaSpeed: 0, size: 1, sizeSpeed: 0 });
+  for (let i = 0; i < 6; i++) spawnFragment(pos.x + r.x, pos.y + r.y, 3, 120); // 彈出去的那一下迸點火花
+}
+
 function updateHat(p, dt) {
   const b = p.body;
   HatFall.step(b, dt, { left: work.x, right: work.x + work.width, floor: work.y + work.height }, Cfg.gravity);
   p.x = b.x; p.y = b.y;
   if (b.resting && !p.restAt) p.restAt = p.age;
-  if (p.restAt && p.age - p.restAt > 0.9) p.alpha -= dt / 0.6;
+  if (p.restAt && p.age - p.restAt > (p.kind === 'gear' ? 1.4 : 0.9)) p.alpha -= dt / 0.6;
   return p.alpha > 0;
 }
 
@@ -584,7 +706,7 @@ function updateParticles(dt) {
     p.age += dt;
     if (p.age >= p.life) { particles.splice(i, 1); continue; }
     if (p.kind === 'absorb') continue;
-    if (p.kind === 'hat') { if (!updateHat(p, dt)) particles.splice(i, 1); continue; }
+    if (p.kind === 'hat' || p.kind === 'gear') { if (!updateHat(p, dt)) particles.splice(i, 1); continue; }
     p.x += p.vx * dt; p.y += p.vy * dt;
     p.size = Math.max(0, p.size + p.sizeSpeed * dt);
     p.alpha += p.alphaSpeed * dt;
@@ -681,16 +803,37 @@ function updateMood(dt) {
 
   if (inside && !dragging) rubEnergy += Math.hypot(cursor.x - lastCursor.x, cursor.y - lastCursor.y) / D * 0.5;
   rubEnergy = Math.min(4, rubEnergy * Math.exp(-1.2 * dt));
+  // 滑鼠停在球上一陣子：從上到下掃描一次，像在辨識你。離開再回來才會再掃
+  if (inside && !dragging && !asleep) {
+    hoverStill += dt;
+    if (!scanDone && hoverStill > Behave.scanAfter) { scanAt = now; scanDone = true; }
+  } else { hoverStill = 0; scanDone = false; }
   const happyTarget = clamp((rubEnergy - 0.6) / 1.2, 0, 1);
   happy += (happyTarget - happy) * Math.min(1, (happyTarget > happy ? 4 : 1.2) * dt);
 
   const timing = pomoEnd !== null; // 計時中保持安靜：不睡、不自己東張西望
   const idle = now - lastInteraction;
-  if (!asleep && !timing && idle > Behave.sleepAfter && alarmUntil < now) { asleep = true; yawnAt = now; } // 入睡前先打個哈欠
+  // 沒人理夠久：隨機選「思考」或「睡覺」。想完會再等一陣子重新選，所以最後總會睡著
+  if (!asleep && !thinking && !timing && idle > Behave.sleepAfter && alarmUntil < now) {
+    if (Math.random() < Behave.thinkChance) startThinking(rand(Behave.thinkSeconds[0], Behave.thinkSeconds[1]));
+    else { asleep = true; yawnAt = now; } // 入睡前先打個哈欠
+  }
+  if (thinking) {
+    if (idle < 0.5 || timing || dragging) thinking = false; // 被打斷：泡泡直接淡掉，不算想通
+    else if (now >= thinkEnd) finishThinking();
+  }
+  thinkAmt += ((thinking ? 1 : 0) - thinkAmt) * Math.min(1, (thinking ? 1.5 : 4) * dt);
   sleepAmt += ((asleep ? 1 : 0) - sleepAmt) * Math.min(1, (asleep ? 0.6 : 3) * dt);
   if (Behave.hat && asleep && sleepAmt > 0.5) hatAmt = Math.min(1, hatAmt + dt / 0.9);
   else if (hatAmt > 0) { if (!asleep) dropHat(); hatAmt = 0; }
-  if (!asleep && !timing && !dragging && idle > Behave.idleAfter && now > nextIdleAction && now > dizzyUntil) {
+  if (wasAsleep && !asleep) { // 剛醒：頭上冒出一個小問號
+    particles.push({
+      kind: 'z', ch: '?', x: pos.x + D * 0.12, y: pos.y - D * 0.62,
+      vx: 3, vy: -14, age: 0, life: 1.5, size: 11, sizeSpeed: 1.5, alpha: 1, alphaSpeed: 0, rot: 0, spin: 0, sway: 0,
+    });
+  }
+  wasAsleep = asleep;
+  if (!asleep && !thinking && !timing && !dragging && idle > Behave.idleAfter && now > nextIdleAction && now > dizzyUntil) {
     nextIdleAction = now + rand(6, 14);
     const a = rand(0, TAU);
     idleLook = { x: Math.cos(a) * D * 0.11, y: Math.sin(a) * D * 0.11 }; // 只東張西望，不移動
@@ -703,6 +846,7 @@ function updateMood(dt) {
     g = { x: dx / dm * k, y: dy / dm * k };
   }
   if (sleepAmt > 0.5) g = { x: 0, y: 0 };
+  if (thinkAmt > 0.3) g = { x: 0, y: D * 0.03 }; // 思考：視線微微往下，像在看自己打的字
   gaze.x += (g.x - gaze.x) * Math.min(1, 6 * dt);
   gaze.y += (g.y - gaze.y) * Math.min(1, 6 * dt);
 }
@@ -761,7 +905,10 @@ let lastFrame = 0;
 function calm() {
   return !dragging && Math.hypot(vel.x, vel.y) < 5 && particles.length === 0 && clipPulse < 0.01
     && now > dizzyUntil && now > alarmUntil && happy < 0.01 && apexBurstCount === 0
-    && now > groggyUntil && now - yawnAt > 1.8;
+    && now > groggyUntil && now - yawnAt > 1.8
+    && !(gearAmt > 0.01 && (gearSince < 0.4 || gearAmt < 0.99)) // 齒輪走格、淡入淡出時要順
+    && now - scanAt > SCAN_TIME + 0.4
+    && now - ideaAt > 0.5 && (thinkAmt < 0.01 || thinkAmt > 0.99); // 打字本身用省電的 20fps 就夠
 }
 let sentOrb = { x: -1e9, y: -1e9, dragging: false };
 function frame(t) {
@@ -928,7 +1075,8 @@ function renderOrb(ctx, lx, ly, v) {
 
   // 內核
   const grog = clamp((groggyUntil - now) / 1.2, 0, 1);
-  const coreAlpha = Math.min(1, 0.75 + 0.25 * b + 0.2 * e + 0.2 * happy + 0.4 * clipPulse) * (1 - 0.4 * grog * Math.abs(Math.sin(now * 8)));
+  const coreAlpha = Math.min(1, 0.75 + 0.25 * b + 0.2 * e + 0.2 * happy + 0.4 * clipPulse) * (1 - 0.4 * grog * Math.abs(Math.sin(now * 8)))
+    * (1 - 0.6 * thinkAmt); // 思考時內核調暗，讓摩斯電碼看得清楚
   ctx.save();
   ctx.translate(co * coreOff + gz.x + wobX, si * coreOff + gz.y + wobY);
   ctx.rotate(coreSpin);
@@ -982,6 +1130,8 @@ function renderOrb(ctx, lx, ly, v) {
     }
   }
   ctx.restore(); // 內核
+  drawScan(ctx, now - scanAt); // 掃描：在本體座標裡畫（跟著呼吸、變形），不跟內核旋轉
+  drawThinking(ctx);           // 思考：球裡打摩斯電碼
 
   // 聖誕帽：跟著外殼的視差和變形，但不自轉
   if (hatAmt > 0 && art.hat) { // 睡著：從上方輕輕落到頭上
@@ -990,6 +1140,38 @@ function renderOrb(ctx, lx, ly, v) {
     ctx.drawImage(art.hat, shX - S, shY - S - drop, S * 2, S * 2);
   }
   ctx.restore(); // 本體
+
+  // ---- 番茄鐘齒輪：光球右上的球邊齒圈，像鐘錶擒縱一樣每秒走一齒（休息時兩秒一齒）；小齒輪咬在上面沿著球邊來回滾 ----
+  gearAmt += ((pomoEnd !== null ? 1 : 0) - gearAmt) * Math.min(1, 4 * dt);
+  if (gearAmt > 0.01) {
+    const step = TAU / gears.ring.teeth;
+    const [a0, a1] = gears.span, mid = (a0 + a1) / 2, swing = (a1 - a0) / 2 - 0.32;
+    const at = mid + Math.sin(now * 0.45) * swing; // 小齒輪在球邊的位置
+    gearAt = at;
+    if (pomoEnd !== null) {
+      const period = pomoIsBreak ? 2 : 1;
+      const elapsed = Math.max(0, pomoDuration - (pomoEnd - now));
+      const k = Math.floor(elapsed / period), f = elapsed - k * period;
+      const x = clamp(f / 0.22, 0, 1), c1 = 2.2, c3 = c1 + 1; // 走一齒：稍微衝過頭再回彈
+      gearAngle = (k + 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2)) * step;
+      gearSince = f;
+      if (k !== gearTick) { // 新的一齒：咬合處偶爾迸出一點火花
+        if (gearTick >= 0 && Math.random() < 0.45) {
+          const m = gears.ring.pitchR;
+          particles.push({
+            kind: 'spark', x: pos.x + Math.cos(at) * m, y: pos.y + Math.sin(at) * m, vx: rand(-40, 40), vy: rand(-70, -20),
+            age: 0, life: 0.35, size: rand(4, 6), sizeSpeed: -10, alpha: 0.9, alphaSpeed: -2.6, rot: 0, spin: 0,
+          });
+        }
+        gearTick = k;
+      }
+    } else gearTick = -1;
+    ctx.save();
+    ctx.translate(lx, ly);
+    ctx.globalAlpha = gearAmt;
+    gears.draw(ctx, gearAngle, at, theme, Math.max(0, 1 - gearSince / 0.35), !gearEjected);
+    ctx.restore();
+  }
 
   // ---- 中央文字：倒計時 / J.A.R.V.I.S.（不跟滑鼠、不跟呼吸）----
   ctx.save();
@@ -1005,8 +1187,8 @@ function renderOrb(ctx, lx, ly, v) {
     ctx.save(); ctx.globalAlpha *= 0.12; ctx.fill(timerPaths.all); ctx.restore();
     ctx.shadowColor = theme.accent; ctx.shadowBlur = 5;
     ctx.fill(timerPaths.lit);
-  } else if (themeName === 'blue') {
-    ctx.globalAlpha = 0.95;
+  } else if (themeName === 'blue' && thinkAmt < 0.99) {
+    ctx.globalAlpha = 0.95 * (1 - thinkAmt); // 思考時讓位給摩斯電碼
     ctx.font = `600 ${Behave.brandFontSize}px -apple-system, "Segoe UI", system-ui, sans-serif`;
     ctx.letterSpacing = `${(Behave.brandFontSize * 0.12).toFixed(2)}px`;
     ctx.textAlign = 'center';
@@ -1014,6 +1196,35 @@ function renderOrb(ctx, lx, ly, v) {
     ctx.shadowColor = 'rgb(26,140,255)'; ctx.shadowBlur = 5;
     ctx.fillStyle = 'rgb(217,247,255)';
     ctx.fillText(Behave.brandText, 0, 0);
+  }
+  ctx.restore();
+}
+
+// 掃描：一條亮線從球頂掃到球底，後面拖一小段淡線；四角出現對焦框
+const SCAN_TIME = 0.9;
+function drawScan(ctx, t) {
+  if (t < 0 || t > SCAN_TIME + 0.35) return;
+  const R = RPT * 0.98;
+  const k = clamp(t / SCAN_TIME, 0, 1), fade = t > SCAN_TIME ? 1 - (t - SCAN_TIME) / 0.35 : 1;
+  ctx.save();
+  ctx.globalAlpha = fade;
+  // 對焦框
+  const c = R * 1.08, l = R * 0.22;
+  ctx.strokeStyle = theme.gearColor; ctx.lineWidth = 0.8;
+  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    ctx.beginPath(); ctx.moveTo(sx * c, sy * (c - l)); ctx.lineTo(sx * c, sy * c); ctx.lineTo(sx * (c - l), sy * c); ctx.stroke();
+  }
+  // 掃描線（只畫在球裡）
+  if (k < 1) {
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.clip();
+    const y = -R + 2 * R * (0.5 - 0.5 * Math.cos(Math.PI * k));
+    for (let i = 0; i < 4; i++) {
+      const yy = y - i * 2.2;
+      ctx.globalAlpha = fade * (i === 0 ? 1 : 0.35 / i);
+      ctx.strokeStyle = theme.gearColor; ctx.lineWidth = i === 0 ? 1.1 : 0.6;
+      if (i === 0) { ctx.shadowColor = theme.gearColor; ctx.shadowBlur = 5; } else ctx.shadowBlur = 0;
+      ctx.beginPath(); ctx.moveTo(-R, yy); ctx.lineTo(R, yy); ctx.stroke();
+    }
   }
   ctx.restore();
 }
@@ -1037,6 +1248,16 @@ function drawParticles() {
       ctx.translate(p.x - win.x, p.y - win.y);
       ctx.rotate(p.body.angle);
       ctx.drawImage(art.hat, -p.cx - S, -p.cy - S, S * 2, S * 2); // 圖的中心是球心，往回移到帽子中心
+      ctx.restore();
+    } else if (p.kind === 'gear') {
+      const g = gears.roller;
+      ctx.save();
+      ctx.globalAlpha = clamp(p.alpha, 0, 1);
+      ctx.translate(p.x - win.x, p.y - win.y);
+      ctx.rotate(p.body.angle + p.body.baseAngle);
+      ctx.strokeStyle = theme.gearDim; ctx.lineWidth = 0.6; ctx.stroke(g.detail);
+      ctx.shadowColor = theme.accent; ctx.shadowBlur = 3;
+      ctx.strokeStyle = theme.gearColor; ctx.lineWidth = 0.9; ctx.stroke(g.outline);
       ctx.restore();
     } else if (p.kind === 'z') {
       const t = p.age / p.life;
