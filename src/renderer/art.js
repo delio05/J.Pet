@@ -4,6 +4,7 @@
 
 const LINE_WEIGHT = 1.7;   // 線條粗細倍數
 const DOT_SPREAD = 0.9;    // 內核小亮點分佈範圍（內核半徑的比例）
+const BRIGHT_ARM = { width: 0.62, alpha: 0.85 }; // 亮光絲相對原本的粗細與亮度（1 = Swift 版）
 const GLOW_BLUR = 11;      // 內核光絲的光暈模糊量（小一點：光暈輕、外圈淡）
 
 class RNG {
@@ -137,9 +138,10 @@ function drawCoreParts(n = 512) {
     actx.beginPath();
     actx.moveTo(...p(r0, a0));
     actx.bezierCurveTo(c1[0], c1[1], c2[0], c2[1], to[0], to[1]);
-    const alpha = bright ? rng.r(0.8, 0.95) : rng.r(0.5, 0.75);
-    actx.strokeStyle = rgba(1, bright ? 0.92 : 0.76, bright ? 0.6 : 0.3, alpha);
-    actx.lineWidth = LINE_WEIGHT * (bright ? rng.r(2.2, 3.4) : rng.r(1, 2));
+    // 亂數呼叫順序不變（排列與 Swift 版相同），只縮小亮絲和暗絲的差距，看起來比較平均
+    const alpha = bright ? rng.r(0.8, 0.95) * BRIGHT_ARM.alpha : rng.r(0.5, 0.75);
+    actx.strokeStyle = bright ? rgba(1, 0.86, 0.48, alpha) : rgba(1, 0.76, 0.3, alpha);
+    actx.lineWidth = LINE_WEIGHT * (bright ? rng.r(2.2, 3.4) * BRIGHT_ARM.width : rng.r(1, 2));
     actx.stroke();
     arms.push({ image: ac, angle: -(a0 + span * 0.6) });
   }
