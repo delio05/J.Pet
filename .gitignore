@@ -1,0 +1,9 @@
+# 相依套件（每個人用 npm install 自己安裝）
+node_modules/
+
+# 舊版 Swift 的編譯產物
+legacy-swift/build/
+
+# macOS / Windows
+.DS_Store
+Thumbs.db

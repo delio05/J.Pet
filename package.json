@@ -1,0 +1,15 @@
+{
+  "name": "orbpet",
+  "version": "2.0.0",
+  "description": "桌面光球寵物（macOS / Windows）— 僅供個人娛樂",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/art.js && node --check src/renderer/pet.js && node --check tools/preview.js && node --check tools/preview-draw.js",
+    "preview": "electron tools/preview.js"
+  },
+  "devDependencies": {
+    "electron": "33.4.11"
+  }
+}
