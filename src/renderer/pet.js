@@ -38,8 +38,8 @@ const Behave = {
   focusMinutes: 25,
   breakMinutes: 5,
   dotGather: 0.5,           // 小亮點往滑鼠方向聚集的程度
-  dotSize: 1.25,            // 小亮點大小倍數
-  dotBright: 1.35,          // 小亮點亮度倍數
+  dotSize: 0.9,             // 小亮點大小倍數
+  dotBright: 1.1,           // 小亮點亮度倍數
   innerArcPeriod: 9,
   brandText: 'J.A.R.V.I.S.',
   brandFontSize: 8.5,
@@ -761,7 +761,7 @@ function renderOrb(ctx, lx, ly, v) {
     const gv = { x: Math.cos(gl) * reach, y: Math.sin(gl) * reach };
     ctx.fillStyle = 'rgb(255,238,180)';
     ctx.shadowColor = 'rgba(255,170,60,0.9)'; // 小光暈，讓亮點在小尺寸下也看得到
-    ctx.shadowBlur = 3;
+    ctx.shadowBlur = 2;
     for (const dl of dotStates) {
       const r = Math.hypot(dl.x, dl.y);
       const cs = Math.cos(dl.skew), sn = Math.sin(dl.skew);
@@ -777,7 +777,7 @@ function renderOrb(ctx, lx, ly, v) {
         gain = (0.2 + 0.8 * (align * reach + (1 - reach) * 0.6)) / 0.68; // 朝滑鼠那側更亮、背側更暗
       }
       ctx.globalAlpha = Math.min(1, dl.alpha * gain * Behave.dotBright) * dim;
-      const sz = Math.max(1.8, dl.size * Behave.dotSize);
+      const sz = Math.max(1.4, dl.size * Behave.dotSize);
       ctx.beginPath(); ctx.arc(px, py, sz / 2, 0, TAU); ctx.fill();
     }
   }
