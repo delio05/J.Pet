@@ -518,7 +518,10 @@ function updateMood(dt) {
   const dm = Math.hypot(dx, dy);
   const inside = dm <= D * 0.5;
   hover += ((inside || dragging ? 1 : 0) - hover) * Math.min(1, 8 * dt);
-  if (dm < Behave.wakeDistance) noteInteraction();
+  // 醒著時：滑鼠在附近「有在動」才算互動（停著不動不算，否則游標剛好擱在旁邊就永遠不會睡）
+  // 睡著時：滑鼠移動不會叫醒它，要點它、拖它或按右鍵才會醒
+  const cursorMoved = Math.hypot(cursor.x - lastCursor.x, cursor.y - lastCursor.y) > 0.5;
+  if (!asleep && cursorMoved && dm < Behave.wakeDistance) lastInteraction = now;
 
   if (inside && !dragging) rubEnergy += Math.hypot(cursor.x - lastCursor.x, cursor.y - lastCursor.y) / D * 0.5;
   rubEnergy = Math.min(4, rubEnergy * Math.exp(-1.2 * dt));
@@ -653,7 +656,7 @@ function render(dt) {
   const A = 1 + e, B = 1 / (1 + e);
   const m00 = A * co * co + B * si * si, m01 = (A - B) * co * si, m11 = A * si * si + B * co * co;
   const purr = happy * 0.02 * Math.sin(now * 38);
-  const flatY = 1 - 0.08 * sleepAmt, flatX = 1 + 0.05 * sleepAmt;
+  const flatY = 1, flatX = 1; // 睡著不壓扁（原本會變矮變寬一點）
   const sx = sqX * breathScale * (1 + purr) * flatX;
   const sy = sqY * breathScale * (1 - purr) * flatY;
   let ty = 0;
