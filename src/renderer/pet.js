@@ -55,7 +55,7 @@ const Behave = {
   thinkSeconds: [18, 35],   // 思考多久（秒，範圍內隨機）
   thinkAgain: [30, 70],     // 想完之後再過幾秒，重新決定要睡還是再想一次
   // 思考時在球裡一行一行打出摩斯電碼（每個字一行）。致敬用，見 README 的免責聲明；想換成自己的字直接改這裡（A–Z、0–9、空白）
-  morsePhrases: ['JARVIS', 'STARK', 'IRON MAN', 'ARC REACTOR', 'MARK 42', 'I AM IRON MAN', 'SUIT UP', 'PROTOCOL'],
+  morsePhrases: ['LOVE YOU', 'I LOVE YOU', 'LOVE YOU 3000', 'I AM IRON MAN', 'PROTOCOL 0', 'JARVIS'],
   morseUnit: 0.075,         // 打一個摩斯單位要幾秒（越小打越快）           // 滑鼠停在球上幾秒後掃描一次          // 躲開時的橫向速度（落地時大約會滑開 40px）
 };
 
@@ -268,7 +268,10 @@ api.on('welcome', (awaySeconds) => {
 api.on('action', (type) => {
   if (type === 'debugSleep') { lastInteraction = now - Behave.sleepAfter - 1; return; } // 除錯：馬上睡著
   if (type === 'debugScan') { scanAt = now; return; }
-  if (type === 'debugThink') { lastInteraction = now - Behave.sleepAfter - 1; startThinking(6); return; } // 除錯：想 6 秒                              // 除錯：掃描一次
+  if (type === 'debugThink') { lastInteraction = now - Behave.sleepAfter - 1; startThinking(6); return; } // 除錯：想 6 秒
+  if (type.startsWith('debugThink:')) { // 除錯：打指定的句子，打完一定說出來，例如 debugThink:LOVE YOU 3000
+    lastInteraction = now - Behave.sleepAfter - 1; morseReveal = true; startThinking(0, type.slice(11)); return;
+  }                              // 除錯：掃描一次
   if (type === 'debugSay') { nextMutterAt = 0; lastInteraction = now - 10; return; } // 除錯：馬上自言自語
   noteInteraction();
   if (type === 'startFocus') startPomodoro(Behave.focusMinutes, false);
@@ -419,23 +422,27 @@ function encodeWord(word) {
   });
   return { els, units: u };
 }
-function nextMorse(at) {
+function nextMorse(at, forced) {
   const list = Behave.morsePhrases.filter((t) => !morse || t !== morse.text);
-  const text = list[Math.floor(Math.random() * list.length)].toUpperCase();
+  const text = (forced || list[Math.floor(Math.random() * list.length)]).toUpperCase();
   const lines = text.split(/\s+/).filter(Boolean).slice(0, 4).map(encodeWord);
   morse = { text, lines, total: lines.reduce((t, l) => t + l.units + 4, 0), start: at };
 }
 const MORSE_HOLD = 1.4, MORSE_FADE = 0.45; // 打完停多久、淡出多久
 
-function startThinking(seconds) {
+let morseReveal = false; // 除錯展示用：這次想完一定把那句說出來
+function startThinking(seconds, phrase) {
   thinking = true; thinkStart = now; thinkEnd = now + seconds;
-  nextMorse(now);
+  nextMorse(now, phrase);
+  if (phrase) thinkEnd = now + morse.total * Behave.morseUnit + MORSE_HOLD + 0.2; // 指定句子：剛好打完、停一下就結束
 }
 // 想通了：光球閃一下，偶爾把剛剛打的那句「翻譯」說出來。之後再等一陣子重新選要睡還是再想
 function finishThinking() {
   thinking = false; ideaAt = now;
   clipPulse = Math.max(clipPulse, 0.6);
-  if (morse && Math.random() < 0.6) say([morse.text]);
+  if (morseReveal) lastSaidAt = -999; // 展示時不管上一句隔多久都要說
+  if (morse && (morseReveal || Math.random() < 0.6)) say([morse.text]);
+  morseReveal = false;
   lastInteraction = now - Behave.sleepAfter + rand(Behave.thinkAgain[0], Behave.thinkAgain[1]);
 }
 

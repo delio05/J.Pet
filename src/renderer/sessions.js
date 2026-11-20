@@ -12,7 +12,7 @@
     popupSeconds: 8,        // 「完成」「等你指示」的彈窗停留秒數；「請求授權」會留到處理完
     maxPopups: 3,           // 同時最多幾張彈窗
     popupWidth: 236,
-    waitPulse: 1.8,         // 等你（指示／授權）：一明一暗一次的秒數
+    waitPulse: 0,           // 等你（指示／授權）：一明一暗一次的秒數；0 = 常亮不閃
     ringPeriod: 14,         // 整圈弧線順時針轉一圈的秒數；所有段一起轉，彼此間距不變。0 = 不轉
     flashSeconds: 0.7,      // 狀態改變時，那一段閃一下的秒數
   };
@@ -274,9 +274,9 @@
         arc(a0, a1, 1.5, k.head, 1, 'butt', 3); // 工作中：整段亮線
       } else if (s.state === 'done') {
         arc(a0, a1, 2.3, k.done, 1, 'butt', 4);
-      } else { // ask / perm：整段實線，亮度慢慢一明一暗（不切成虛線，圓周上才不會出現細碎的小段）
-        const pulse = 0.5 - 0.5 * Math.cos((now / SessCfg.waitPulse) * TAU);
-        arc(a0, a1, 1.5, k.wait, 0.3 + 0.7 * pulse, 'butt', 2);
+      } else { // ask / perm：整段實線；waitPulse > 0 時亮度慢慢一明一暗，0 時常亮（比工作中粗一點、亮一點）
+        const pulse = SessCfg.waitPulse > 0 ? 0.3 + 0.7 * (0.5 - 0.5 * Math.cos((now / SessCfg.waitPulse) * TAU)) : 1;
+        arc(a0, a1, SessCfg.waitPulse > 0 ? 1.5 : 2, k.wait, pulse, 'butt', 2);
       }
       const f = (now - s.flashAt) / SessCfg.flashSeconds;
       if (f >= 0 && f < 1 && s.state !== 'idle') arc(a0, a1, 4.5, k.done, 0.45 * (1 - f), 'butt', 6);
