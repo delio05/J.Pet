@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/claude.js && node --check src/preload.js && node --check src/renderer/art.js && node --check src/renderer/sessions.js && node --check src/renderer/pet.js && node --check tools/preview.js && node --check tools/preview-draw.js",
+    "check": "node --check src/main.js && node --check src/claude.js && node --check src/preload.js && node --check src/renderer/art.js && node --check src/renderer/hatfall.js && node --check src/renderer/sessions.js && node --check src/renderer/pet.js && node --check tools/preview.js && node --check tools/preview-draw.js",
     "preview": "electron tools/preview.js"
   },
   "devDependencies": {

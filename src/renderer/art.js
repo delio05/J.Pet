@@ -476,10 +476,31 @@ function segmentPaths(text, h) {
   return { lit, all, width: x - t * 0.9 + h * skew };
 }
 
-// 帽子中心相對球心的位置（單位：球半徑，y 往下為正），掉落時繞這一點旋轉
-function hatCenter() {
-  const d = 1 + HAT.gap + HAT.band + HAT.height * 0.4;
-  return { x: Math.sin(HAT.tilt) * d, y: -Math.cos(HAT.tilt) * d, tilt: HAT.tilt };
+// 帽子當剛體用的資料（單位：球半徑，y 往下為正）
+// com：重心相對球心的位置（圖裡的位置，已含傾斜）；hull：外框頂點相對重心（未傾斜）；gyration：迴轉半徑
+function hatBody() {
+  const hw = HAT.halfW, bh = HAT.band, bw = hw * 0.8, tipY = -bh - HAT.height;
+  const pomY = tipY - HAT.pom * 1.5;
+  // 各部分以面積當重量：帽緣（矩形）、帽身（三角形）、頂端（六角形）
+  const parts = [
+    { m: 2 * hw * bh, y: -bh / 2 },
+    { m: bw * HAT.height, y: -bh - HAT.height / 3 },
+    { m: 2.6 * HAT.pom * HAT.pom, y: pomY },
+  ];
+  const M = parts.reduce((t, q) => t + q.m, 0);
+  const cy = parts.reduce((t, q) => t + q.m * q.y, 0) / M;
+  const pts = [
+    [-hw, 0], [hw, 0], [hw + 0.04, -bh / 2], [hw, -bh], [bw * 0.45, -bh - HAT.height * 0.55],
+    [HAT.pom, pomY], [0, pomY - HAT.pom], [-HAT.pom, pomY],
+    [-bw * 0.45, -bh - HAT.height * 0.55], [-hw, -bh], [-hw - 0.04, -bh / 2],
+  ];
+  const seat = 1 + HAT.gap, cs = Math.cos(HAT.tilt), sn = Math.sin(HAT.tilt);
+  return {
+    com: { x: sn * seat - cy * sn, y: -cs * seat + cy * cs },
+    hull: pts.map(([x, y]) => [x, y - cy]),
+    gyration: 0.36,
+    tilt: HAT.tilt,
+  };
 }
 
-window.OrbArt = { getArt, THEMES, segmentPaths, hatCenter };
+window.OrbArt = { getArt, THEMES, segmentPaths, hatBody };

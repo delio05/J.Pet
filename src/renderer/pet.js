@@ -554,42 +554,28 @@ function emitMotes(dt) {
   }
 }
 
-// 被叫醒：帽子從頭上彈開，掉到地上，停一下再淡掉
+// 被叫醒：帽子從頭上彈開，當成剛體掉到地上（會翻、會彈、停在穩定的那一面），停一下再淡掉
 function dropHat() {
   if (!art.hat || hatAmt < 0.3) return;
-  const hc = OrbArt.hatCenter(), r = S * 0.44;
+  const hb = OrbArt.hatBody(), r = S * 0.44;
+  const body = HatFall.create({
+    x: pos.x + hb.com.x * r, y: pos.y + hb.com.y * r,
+    vx: vel.x * 0.5 + rand(60, 120), vy: Math.min(vel.y, 0) * 0.5 - rand(380, 480),
+    w: rand(3, 6), hull: hb.hull.map(([x, y]) => [x * r, y * r]), baseAngle: hb.tilt, gyration: hb.gyration * r,
+  });
   particles.push({
-    kind: 'hat', x: pos.x + hc.x * r, y: pos.y + hc.y * r, cx: hc.x * r, cy: hc.y * r,
-    vx: vel.x * 0.5 + rand(50, 110), vy: Math.min(vel.y, 0) * 0.5 - rand(160, 230),
-    rot: 0, spin: rand(2.5, 5), tilt: hc.tilt, rest: 0, bounces: 0,
-    age: 0, life: 12, alpha: Math.min(1, hatAmt), alphaSpeed: 0, size: 1, sizeSpeed: 0,
+    kind: 'hat', body, x: body.x, y: body.y, cx: hb.com.x * r, cy: hb.com.y * r, restAt: 0,
+    age: 0, life: 15, alpha: Math.min(1, hatAmt), alphaSpeed: 0, size: 1, sizeSpeed: 0,
   });
 }
 
 function updateHat(p, dt) {
-  const floor = work.y + work.height, half = S * 0.44 * 0.42; // 帽子大約的半高
-  if (p.rest) { // 落地後：轉正（帽緣朝下）、停一下、淡掉
-    p.rot += (p.restRot - p.rot) * Math.min(1, 10 * dt);
-    p.y += (floor - half - p.y) * Math.min(1, 10 * dt);
-    if (p.age - p.rest > 0.9) p.alpha -= dt / 0.6;
-    return p.alpha > 0;
-  }
-  p.vy += 1400 * dt;
-  p.x += p.vx * dt; p.y += p.vy * dt;
-  p.rot += p.spin * dt;
-  if (p.x < work.x + half || p.x > work.x + work.width - half) { p.vx = -p.vx * 0.5; p.x = clamp(p.x, work.x + half, work.x + work.width - half); }
-  if (p.y > floor - half) {
-    p.y = floor - half;
-    p.bounces += 1;
-    if (Math.abs(p.vy) < 180 || p.bounces >= 3) {
-      p.rest = p.age;
-      // 帽緣朝下 = 總角度（傾斜 + 旋轉）是 2π 的倍數，取最近的那個
-      p.restRot = Math.round((p.rot + p.tilt) / TAU) * TAU - p.tilt;
-    } else {
-      p.vy = -p.vy * 0.35; p.vx *= 0.6; p.spin *= -0.5;
-    }
-  }
-  return true;
+  const b = p.body;
+  HatFall.step(b, dt, { left: work.x, right: work.x + work.width, floor: work.y + work.height }, Cfg.gravity);
+  p.x = b.x; p.y = b.y;
+  if (b.resting && !p.restAt) p.restAt = p.age;
+  if (p.restAt && p.age - p.restAt > 0.9) p.alpha -= dt / 0.6;
+  return p.alpha > 0;
 }
 
 function updateParticles(dt) {
@@ -1049,7 +1035,7 @@ function drawParticles() {
       ctx.save();
       ctx.globalAlpha = clamp(p.alpha, 0, 1);
       ctx.translate(p.x - win.x, p.y - win.y);
-      ctx.rotate(p.rot);
+      ctx.rotate(p.body.angle);
       ctx.drawImage(art.hat, -p.cx - S, -p.cy - S, S * 2, S * 2); // 圖的中心是球心，往回移到帽子中心
       ctx.restore();
     } else if (p.kind === 'z') {
