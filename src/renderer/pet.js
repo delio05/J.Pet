@@ -205,13 +205,19 @@ const lowBattery = () => battery && !battery.charging && battery.level <= 0.2;
 
 // ======================== 滑鼠 ========================
 const toGlobal = (e) => ({ x: e.clientX + win.x, y: e.clientY + win.y });
+const DOUBLE_CLICK_TIME = 0.35; // 兩次按下的間隔小於此秒數算雙擊
+let lastDown = { t: 0, x: 0, y: 0 };
 
 window.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
   cursor = toGlobal(e);
   noteInteraction();
   if (pomoEnd !== null) { sqVX += 1.2; sqVY -= 1.2; return; } // 番茄鐘計時中：鎖定
-  if (e.detail >= 2) { poke(); return; }
+  // 雙擊：自己計時判斷（pointer 事件的 e.detail 在 Chromium 永遠是 0，不能用）
+  const t = performance.now() / 1000;
+  const isDouble = t - lastDown.t < DOUBLE_CLICK_TIME && Math.hypot(cursor.x - lastDown.x, cursor.y - lastDown.y) < 8;
+  lastDown = isDouble ? { t: 0, x: 0, y: 0 } : { t, x: cursor.x, y: cursor.y };
+  if (isDouble) { endDrag(); poke(); return; }
   dragging = true;
   grounded = false;
   dragOffset = { x: pos.x - cursor.x, y: pos.y - cursor.y };
