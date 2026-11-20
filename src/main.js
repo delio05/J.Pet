@@ -2,7 +2,7 @@
 // 光球的繪圖、物理、互動都在 renderer（src/renderer/pet.js）
 'use strict';
 
-const { app, BrowserWindow, screen, Tray, Menu, ipcMain, clipboard, nativeImage } = require('electron');
+const { app, BrowserWindow, screen, Tray, Menu, ipcMain, clipboard, nativeImage, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -52,8 +52,19 @@ function send(channel, data) {
 }
 
 // ---------- 視窗：覆蓋整個螢幕的透明視窗，只有光球本身可點擊 ----------
+// 上次關掉時光球在哪裡（存在設定檔的 pos）。位置還在某個螢幕裡才算數
+function savedStart() {
+  const p = settings.pos;
+  if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+  const d = screen.getDisplayNearestPoint({ x: Math.round(p.x), y: Math.round(p.y) });
+  const b = d.bounds;
+  if (p.x < b.x || p.x > b.x + b.width || p.y < b.y || p.y > b.y + b.height) return null;
+  return { pos: { x: p.x, y: p.y }, display: d };
+}
+
 function createWindow() {
-  const d = screen.getPrimaryDisplay();
+  const start = savedStart();
+  const d = start ? start.display : screen.getPrimaryDisplay();
   displayId = d.id;
   win = new BrowserWindow({
     ...d.bounds,
@@ -84,7 +95,7 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.webContents.on('did-finish-load', () => {
     send('settings', settings);
-    sendDisplay(d);
+    sendDisplay(d, start && start.pos); // 有記住的位置就直接出現在那裡，不從上面掉下來
     win.showInactive();
     // 除錯：ORBPET_DEMO_POMO=秒數 → 啟動後馬上開始一個很短的番茄鐘
     if (process.env.ORBPET_DEMO_POMO) send('action', `debugPomo:${process.env.ORBPET_DEMO_POMO}`);
@@ -118,8 +129,36 @@ function setIgnore(ignore) {
   win.setIgnoreMouseEvents(ignore, { forward: true });
 }
 
-function sendDisplay(d) {
-  send('display', { bounds: win.getBounds(), workArea: d.workArea });
+function sendDisplay(d, startPos) {
+  send('display', { bounds: win.getBounds(), workArea: d.workArea, start: startPos || null });
+}
+
+// 記住光球的位置：停下來之後才存，最多每 10 秒寫一次設定檔
+function rememberPosition() {
+  if (!win || hidden || orb.dragging || !Number.isFinite(orb.x) || !Number.isFinite(orb.y)) return;
+  if (orb.x === 0 && orb.y === 0) return; // 畫面還沒回報過位置
+  const p = settings.pos;
+  if (p && Math.abs(p.x - orb.x) < 2 && Math.abs(p.y - orb.y) < 2) return;
+  settings.pos = { x: Math.round(orb.x), y: Math.round(orb.y) };
+  saveSettings();
+}
+
+// 你回來了：電腦解鎖或從睡眠恢復時通知畫面（附上離開了幾秒）
+let awaySince = 0, lastWelcome = 0;
+function watchPresence() {
+  const left = () => { if (!awaySince) awaySince = Date.now(); };
+  const back = () => {
+    const nowMs = Date.now();
+    if (nowMs - lastWelcome < 10000) return; // 恢復和解鎖常常接連發生，只算一次
+    lastWelcome = nowMs;
+    const away = awaySince ? (nowMs - awaySince) / 1000 : 0;
+    awaySince = 0;
+    setTimeout(() => send('welcome', away), 1200); // 等畫面亮起來再反應
+  };
+  powerMonitor.on('lock-screen', left);
+  powerMonitor.on('suspend', left);
+  powerMonitor.on('unlock-screen', back);
+  powerMonitor.on('resume', back);
 }
 
 // 光球跑到另一個螢幕時，把視窗搬過去
@@ -316,6 +355,8 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   startClaude();
+  watchPresence();
+  setInterval(rememberPosition, 10000);
   cursorLoop();
   setInterval(cpuLoop, 2000);
   setInterval(clipboardLoop, 400);
@@ -329,6 +370,6 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => app.quit());
-app.on('will-quit', () => claude.shutdown());
+app.on('will-quit', () => { rememberPosition(); claude.shutdown(); });
 // 從終端機按 Ctrl+C 或關掉視窗結束時，也要走正常的結束流程（刪掉 port 檔）
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => app.quit());

@@ -23,6 +23,18 @@
     .jp-mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
     .jp-foot { display: flex; gap: 8px; font-size: 11px; color: #B4BFCB; }
     .jp-meta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* 滑鼠停在某一段弧線上時的小標籤 */
+    #tip { position: fixed; left: 0; top: 0; z-index: 3; display: none; pointer-events: none; white-space: nowrap; padding: 4px 9px;
+      font: 500 12.5px -apple-system, "Segoe UI", system-ui, sans-serif; color: #FFE9C4;
+      text-shadow: 0 0 2px rgba(0,0,0,0.95), 0 1px 3px rgba(0,0,0,0.85), 0 0 9px rgba(255,150,40,0.55); } /* 只有字，沒有底框；靠陰影在亮背景上也看得清 */
+    #tip[data-theme="blue"] { color: #D9F0FF; text-shadow: 0 0 2px rgba(0,0,0,0.95), 0 1px 3px rgba(0,0,0,0.85), 0 0 9px rgba(40,150,255,0.6); }
+    /* 自言自語：光球上方的一行小字，自己淡入淡出，不能點 */
+    #say { position: fixed; left: 0; top: 0; z-index: 3; pointer-events: none; white-space: nowrap; padding: 4px 9px; opacity: 0; transition: opacity 0.45s ease;
+      font: 500 12.5px -apple-system, "Segoe UI", system-ui, sans-serif; color: #FFE9C4;
+      text-shadow: 0 0 2px rgba(0,0,0,0.95), 0 1px 3px rgba(0,0,0,0.85), 0 0 9px rgba(255,150,40,0.55); } /* 只有字，沒有底框 */
+    #say.on { opacity: 1; }
+    #say[data-theme="blue"] { color: #D9F0FF; text-shadow: 0 0 2px rgba(0,0,0,0.95), 0 1px 3px rgba(0,0,0,0.85), 0 0 9px rgba(40,150,255,0.6); }
+    @media (prefers-reduced-motion: reduce) { #say { transition: none; } }
     @keyframes jp-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
     @media (prefers-reduced-motion: reduce) { .jp-pop { animation: none; } }
   </style>
@@ -31,6 +43,8 @@
   <canvas id="fx"></canvas>
   <canvas id="orb"></canvas>
   <div id="pops"></div>
+  <div id="tip"></div>
+  <div id="say"></div>
   <script src="art.js"></script>
   <script src="sessions.js"></script>
   <script src="pet.js"></script>

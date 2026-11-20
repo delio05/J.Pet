@@ -42,9 +42,13 @@ const Behave = {
   dotBright: 0.8,           // 小亮點亮度倍數
   innerArcPeriod: 9,
   brandText: 'J.A.R.V.I.S.',
-  brandFontSize: 8.5,
+  brandFontSize: 9.5,
   timerFontSize: 20,
   celebrateSeconds: 6,
+  dodgeClicks: 3,           // 2 秒內點這麼多下就躲開
+  mutterGap: [300, 600],    // 自言自語：兩句之間至少隔幾秒（在這個範圍內隨機）。調大 = 更少說話
+  mutterSeconds: 3.6,       // 一句話停留幾秒
+  dodgeSpeed: 150,          // 躲開時的橫向速度（落地時大約會滑開 40px）
 };
 
 const D = Cfg.orbDiameter;
@@ -54,6 +58,22 @@ const TAU = Math.PI * 2;
 const rand = (a, b) => a + (b - a) * Math.random();
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const api = window.orbpet;
+
+// 自言自語的句子（依情境分組）。想增減直接改這裡；某一組清空就不會在那個情境說話
+const LINES = {
+  quiet: ['All quiet.', 'Nothing on the board.', 'Standing by.'],          // 沒有任何 Claude Code 工作階段
+  running: ["Everything's in hand.", 'All sessions running.'],               // 都在跑，沒有要你處理的
+  waiting: ['One of them is still waiting.'],                                // 有工作階段等你超過 5 分鐘
+  waitingLong: ['One of them is still waiting.', "No rush. It's only been ten minutes."], // 超過 10 分鐘
+  finished: ['That went well.', 'Clean finish.', 'Done, and nothing caught fire.'],       // 最後一個在跑的也做完了
+  late: ["It's late. Just noting it."],                                      // 半夜 12 點到 5 點，一晚最多一次
+  warm: ['Running a little warm.'],                                          // CPU 很忙
+  battery: ["Battery's getting thin."],                                      // 低電量
+  poked: ['Yes?', 'I felt that.'],                                           // 被戳到躲開
+  woken: ['Back online.'],
+  welcome: ['Welcome back.'],                                                // 電腦解鎖／喚醒，離開 5 分鐘以上
+  welcomeLong: ['Been a while.'],                                            // 離開 3 小時以上                                                   // 被叫醒
+};
 
 // ======================== 狀態 ========================
 // 兩張畫布：fx 覆蓋全螢幕畫碎片（沒碎片時不重畫）；orb 只有光球大小，靠 CSS 位移跟著光球走
@@ -102,6 +122,14 @@ let pomoEnd = null, pomoDuration = 1, pomoIsBreak = false;
 let alarmUntil = 0, nextAlarmHop = 0, hopSide = 1, firstCelebrateHop = false;
 let apexBurstCount = 0, apexBurstAt = 0;
 let clipFlashAt = 0, clipPulse = 0;
+let yawnAt = -99;            // 開始打哈欠的時間（入睡的那一刻）
+let groggyUntil = 0;         // 被叫醒後迷糊到什麼時候
+const pokeTimes = [];        // 最近幾次點擊的時間，用來判斷「戳太多下」
+let dodgeReadyAt = 0;
+const sayEl = document.getElementById('say');
+let sayUntil = 0, lastSaid = '', lastSaidAt = -999;
+let nextMutterAt = now + rand(120, 300); // 啟動後過幾分鐘才可能說第一句
+let lateSaidOn = '', batterySaidAt = -9999;
 
 const radius = () => D * Cfg.collisionScale;
 
@@ -132,7 +160,7 @@ function prepareArt(a) {
     ...a,
     shell: shrink(a.shell), mid: a.mid && shrink(a.mid),
     shellPlain: a.shellPlain && shrink(a.shellPlain),
-    coreGlow: shrink(a.coreGlow), coreBase: shrink(a.coreBase), coreSpinner: a.coreSpinner && shrink(a.coreSpinner),
+    coreGlow: shrink(a.coreGlow), coreBase: shrink(a.coreBase), coreInner: a.coreInner && shrink(a.coreInner), coreSpinner: a.coreSpinner && shrink(a.coreSpinner),
     arms: a.arms.map((arm) => ({ ...arm, image: shrink(arm.image) })),
   };
   preparedCache.set(a, p);
@@ -171,8 +199,13 @@ api.on('display', (d) => {
   resizeCanvas();
   if (!placed) {
     placed = true;
-    pos.x = work.x + work.width * 0.8;
-    pos.y = work.y + radius();
+    if (d.start) { // 記得上次的位置：直接出現在那裡
+      pos.x = clamp(d.start.x, work.x + radius(), work.x + work.width - radius());
+      pos.y = clamp(d.start.y, work.y + radius(), work.y + work.height - radius());
+    } else {       // 第一次啟動：從右上方掉下來
+      pos.x = work.x + work.width * 0.8;
+      pos.y = work.y + radius();
+    }
   }
 });
 window.addEventListener('resize', () => { win.width = window.innerWidth; win.height = window.innerHeight; resizeCanvas(); });
@@ -202,6 +235,18 @@ api.on('hidden', (h) => {
   hidden = h;
   if (!h) { lastInteraction = now; lastTime = performance.now() / 1000; hop(500); }
 });
+// 你回來了（電腦解鎖或從睡眠恢復）：醒來、亮一下；離開夠久才打招呼。不跳
+api.on('welcome', (awaySeconds) => {
+  if (hidden) return;
+  now = performance.now() / 1000;
+  lastTime = now;
+  lastInteraction = now;
+  if (asleep) { asleep = false; popZ(); }
+  clipPulse = 1; // 借用剪貼簿那個「閃一下」的效果
+  if (awaySeconds >= 3 * 3600) say(LINES.welcomeLong);
+  else if (awaySeconds >= 300) say(LINES.welcome);
+});
+
 api.on('action', (type) => {
   noteInteraction();
   if (type === 'startFocus') startPomodoro(Behave.focusMinutes, false);
@@ -215,9 +260,11 @@ api.on('action', (type) => {
 });
 
 // 終端機有事要通知時：只彈窗，光球不跳；睡著的話先醒來
-Sessions.onNotify = () => {
+Sessions.onNotify = (kind, st) => {
   if (hidden) return;
-  if (asleep) asleep = false;
+  if (asleep) { asleep = false; groggyUntil = now + 1.2; popZ(); }
+  // 最後一個在跑的也做完了：偶爾說一句
+  if (kind === 'done' && st && st.work === 0 && st.wait === 0 && Math.random() < 0.35) say(LINES.finished);
 };
 
 if (navigator.getBattery) navigator.getBattery().then((b) => { battery = b; }).catch(() => {});
@@ -234,6 +281,19 @@ window.addEventListener('pointerdown', (e) => {
   cursor = toGlobal(e);
   noteInteraction();
   if (pomoEnd !== null) { sqVX += 1.2; sqVY -= 1.2; return; } // 番茄鐘計時中：鎖定
+  // 短時間戳太多下：往旁邊躲一小步
+  const tPoke = performance.now() / 1000;
+  pokeTimes.push(tPoke);
+  while (pokeTimes.length && pokeTimes[0] < tPoke - 2) pokeTimes.shift();
+  if (pokeTimes.length >= Behave.dodgeClicks && tPoke > dodgeReadyAt) {
+    pokeTimes.length = 0;
+    dodgeReadyAt = tPoke + 1.5;
+    lastDown = { t: 0, x: 0, y: 0 };
+    endDrag();
+    dodge();
+    if (Math.random() < 0.6) say(LINES.poked);
+    return;
+  }
   // 雙擊：自己計時判斷（pointer 事件的 e.detail 在 Chromium 永遠是 0，不能用）
   const t = performance.now() / 1000;
   const isDouble = t - lastDown.t < DOUBLE_CLICK_TIME && Math.hypot(cursor.x - lastDown.x, cursor.y - lastDown.y) < 8;
@@ -262,6 +322,73 @@ function poke() {
   spinVel += rand(-2.5, 2.5);
 }
 
+// 躲開：往遠離滑鼠的方向橫移一點點（靠牆就往另一邊），順便縮一下
+function dodge() {
+  let dir = pos.x >= cursor.x ? 1 : -1;
+  const reach = D * 0.9;
+  if (pos.x + dir * reach > work.x + work.width - radius() || pos.x + dir * reach < work.x + radius()) dir = -dir;
+  vel.x = dir * Behave.dodgeSpeed * (settings.gravity ? 1 : 0.4); // 漂浮模式阻力小，給小一點
+  sqVX -= 2.2; sqVY += 2.2;
+}
+
+// 睡著時飄著的 Zzz：被叫醒的瞬間脹大一下就消失
+function popZ() {
+  for (const p of particles) if (p.kind === 'z') { p.life = p.age + 0.22; p.sizeSpeed = 34; }
+}
+
+// 打哈欠的曲線：0 → 1（張開）→ 停一拍 → 0，整個約 1.7 秒
+function yawnCurve(t) {
+  const ease = (x) => 0.5 - 0.5 * Math.cos(Math.PI * x);
+  if (t < 0 || t > 1.7) return 0;
+  if (t < 0.7) return ease(t / 0.7);
+  if (t < 1.1) return 1;
+  return 1 - ease((t - 1.1) / 0.6);
+}
+
+// ---- 自言自語 ----
+// 說一句（從清單裡挑一句和上一句不同的）。離上一句太近就不說，避免吵
+function say(list) {
+  if (!sayEl || !list || !list.length || hidden || now - lastSaidAt < 40) return false;
+  const pool = list.length > 1 ? list.filter((l) => l !== lastSaid) : list;
+  const line = pool[Math.floor(Math.random() * pool.length)];
+  lastSaid = line; lastSaidAt = now;
+  sayEl.textContent = line;
+  sayEl.dataset.theme = themeName;
+  sayEl.classList.add('on');
+  sayUntil = now + Behave.mutterSeconds;
+  nextMutterAt = now + rand(Behave.mutterGap[0], Behave.mutterGap[1]);
+  return true;
+}
+
+// 閒下來時（沒人理 20 秒以上、還沒睡著）看情境挑一句；兩句之間至少隔 mutterGap
+function pickMutter() {
+  const st = Sessions.stats();
+  if (lowBattery() && now - batterySaidAt > 1200) { batterySaidAt = now; return LINES.battery; }
+  if (heat > 0.5) return LINES.warm;
+  if (st.longestWait > 600) return LINES.waitingLong;
+  if (st.longestWait > 300) return LINES.waiting;
+  const d = new Date();
+  if (d.getHours() < 5 && lateSaidOn !== d.toDateString()) { lateSaidOn = d.toDateString(); return LINES.late; }
+  if (st.total > 0 && st.work === st.total) return LINES.running;
+  if (st.total === 0) return LINES.quiet;
+  return null;
+}
+
+function updateMutter() {
+  if (!sayEl) return;
+  if (sayEl.classList.contains('on')) {
+    // 跟著光球走；滑鼠正在看某一段弧線的標籤時讓位
+    if (now > sayUntil || dragging || Sessions.stats().hovering) sayEl.classList.remove('on');
+    const above = pos.y - D * 0.5 - 34 > work.y;
+    const x = Math.round(pos.x - win.x), y = Math.round(pos.y - win.y + (above ? -(D * 0.5 + 12) : D * 0.5 + 12));
+    sayEl.style.transform = `translate(${x}px, ${y}px) translate(-50%, ${above ? '-100%' : '0'})`;
+    return;
+  }
+  const idle = now - lastInteraction;
+  if (now < nextMutterAt || asleep || dragging || pomoEnd !== null || idle < 20 || now < alarmUntil) return;
+  if (!say(pickMutter())) nextMutterAt = now + 60; // 這次沒話說，一分鐘後再看
+}
+
 function hop(strength = 700) {
   if (settings.gravity && grounded) {
     vel.y = -strength; grounded = false; // 原地往上跳，不往左右飄
@@ -274,7 +401,7 @@ function hop(strength = 700) {
 
 function noteInteraction() {
   lastInteraction = now;
-  if (asleep) { asleep = false; hop(650); queueApexBurst(14); }
+  if (asleep) { asleep = false; groggyUntil = now + 1.2; popZ(); hop(650); queueApexBurst(14); if (Math.random() < 0.5) say(LINES.woken); }
 }
 
 // 跳起來後，到最高點才爆碎片
@@ -530,7 +657,7 @@ function updateMood(dt) {
 
   const timing = pomoEnd !== null; // 計時中保持安靜：不睡、不自己東張西望
   const idle = now - lastInteraction;
-  if (!asleep && !timing && idle > Behave.sleepAfter && alarmUntil < now) asleep = true;
+  if (!asleep && !timing && idle > Behave.sleepAfter && alarmUntil < now) { asleep = true; yawnAt = now; } // 入睡前先打個哈欠
   sleepAmt += ((asleep ? 1 : 0) - sleepAmt) * Math.min(1, (asleep ? 0.6 : 3) * dt);
   if (!asleep && !timing && !dragging && idle > Behave.idleAfter && now > nextIdleAction && now > dizzyUntil) {
     nextIdleAction = now + rand(6, 14);
@@ -587,7 +714,8 @@ function tick() {
   updateParticles(dt);
 
   Sessions.update(now);
-  Sessions.layout({ pos, win, work, D });
+  updateMutter();
+  Sessions.layout({ pos, win, work, D, RPT, cursor, quiet: dragging });
   if (Math.abs(pos.x - sentOrb.x) > 0.5 || Math.abs(pos.y - sentOrb.y) > 0.5 || dragging !== sentOrb.dragging || Sessions.consumeDirty()) {
     sentOrb = { x: pos.x, y: pos.y, dragging };
     api.send('orb', { x: pos.x, y: pos.y, r: D * 0.5, dragging, rects: Sessions.rects() });
@@ -601,7 +729,8 @@ const CALM_FPS = 20; // 平靜時的畫面更新率
 let lastFrame = 0;
 function calm() {
   return !dragging && Math.hypot(vel.x, vel.y) < 5 && particles.length === 0 && clipPulse < 0.01
-    && now > dizzyUntil && now > alarmUntil && happy < 0.01 && apexBurstCount === 0;
+    && now > dizzyUntil && now > alarmUntil && happy < 0.01 && apexBurstCount === 0
+    && now > groggyUntil && now - yawnAt > 1.8;
 }
 let sentOrb = { x: -1e9, y: -1e9, dragging: false };
 function frame(t) {
@@ -649,7 +778,9 @@ function render(dt) {
   breathPhase += dt / period;
   const b = breath(breathPhase);
   const amp = Cfg.breathAmplitude * (1 - 0.5 * happy);
-  const breathScale = 1 - amp + 2 * amp * b + hover * 0.03 + happy * 0.04 + clipPulse * 0.06;
+  const yawn = yawnCurve(now - yawnAt);
+  const groggy = clamp((groggyUntil - now) / 1.2, 0, 1);
+  const breathScale = 1 - amp + 2 * amp * b + hover * 0.03 + happy * 0.04 + clipPulse * 0.06 + yawn * 0.05;
 
   // 形變矩陣 = R(θ)·diag(1+e, 1/(1+e))·R(-θ) · diag(sx, sy)
   const e = stretchAmt, co = dirVec.x, si = dirVec.y;
@@ -675,8 +806,10 @@ function render(dt) {
   arcSpin += rate(Behave.innerArcPeriod) * rateScale * dt;
 
   const dim = lowBattery() ? 0.65 : 1; // 睡著不變暗（改用左上角的 Zzz 表示）
-  const wobX = Math.cos(now * 9) * D * 0.08 * dizzy, wobY = Math.sin(now * 11) * D * 0.08 * dizzy;
-  const coreScale = (0.92 + 0.14 * b) * (1 - 0.12 * sleepAmt) * (1 + 0.1 * happy);
+  // 剛被叫醒：內核晃兩下再穩住
+  const wobX = Math.cos(now * 9) * D * 0.08 * dizzy + Math.sin(now * 12) * D * 0.055 * groggy * groggy;
+  const wobY = Math.sin(now * 11) * D * 0.08 * dizzy + Math.cos(now * 9) * D * 0.03 * groggy * groggy;
+  const coreScale = (0.92 + 0.14 * b) * (1 - 0.12 * sleepAmt) * (1 + 0.1 * happy) * (1 + 0.3 * yawn);
   const hasArms = art.arms.length > 0;
   const gz = { x: 0, y: 0 };                       // 內核固定在中間，不跟滑鼠（藍色原本整個準星會偏向滑鼠）
   const par = hasArms ? { x: 0, y: 0 } : gaze;     // 橙色：外殼不位移
@@ -742,12 +875,13 @@ function renderOrb(ctx, lx, ly, v) {
     ctx.drawImage(img, -S / 2, -S / 2, S, S);
     ctx.restore();
   };
+  const shX = par.x * 0.35, shY = par.y * 0.35;
   const withSessions = Sessions.active() && art.shellPlain;
-  drawImg(withSessions ? art.shellPlain : art.shell, par.x * 0.35, par.y * 0.35, spin, 0.85 + 0.15 * b);
+  drawImg(withSessions ? art.shellPlain : art.shell, shX, shY, spin, 0.85 + 0.15 * b);
   if (art.mid) drawImg(art.mid, par.x * 0.65, par.y * 0.65, midSpin, 0.85 + 0.15 * b);
   if (withSessions) { // 終端機分段弧線：跟著外殼的視差，但不自轉
     ctx.save();
-    ctx.translate(par.x * 0.35, par.y * 0.35);
+    ctx.translate(shX, shY);
     Sessions.draw(ctx, RPT, dim);
     ctx.restore();
   }
@@ -762,7 +896,8 @@ function renderOrb(ctx, lx, ly, v) {
   }
 
   // 內核
-  const coreAlpha = Math.min(1, 0.75 + 0.25 * b + 0.2 * e + 0.2 * happy + 0.4 * clipPulse);
+  const grog = clamp((groggyUntil - now) / 1.2, 0, 1);
+  const coreAlpha = Math.min(1, 0.75 + 0.25 * b + 0.2 * e + 0.2 * happy + 0.4 * clipPulse) * (1 - 0.4 * grog * Math.abs(Math.sin(now * 8)));
   ctx.save();
   ctx.translate(co * coreOff + gz.x + wobX, si * coreOff + gz.y + wobY);
   ctx.rotate(coreSpin);
@@ -774,7 +909,9 @@ function renderOrb(ctx, lx, ly, v) {
     cgx = -(gz.x * cr - gz.y * sr) / coreScale;
     cgy = -(gz.x * sr + gz.y * cr) / coreScale;
   }
+  // 內核各層（光暈、細環、準星、旋轉亮弧）都固定在球心，不跟滑鼠
   drawImg(art.coreGlow, cgx, cgy, 0, coreAlpha);
+  if (art.coreInner) drawImg(art.coreInner, 0, 0, 0, coreAlpha);
   drawImg(art.coreBase, 0, 0, 0, coreAlpha);
   if (art.coreSpinner) drawImg(art.coreSpinner, 0, 0, arcSpin, coreAlpha);
   for (const arm of art.arms) drawImg(arm.image, 0, 0, 0, coreAlpha);

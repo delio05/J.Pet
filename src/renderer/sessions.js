@@ -42,6 +42,9 @@
   let dirty = false;
   let stackHeight = 0;
   let host = null;
+  let rot = 0;            // 整圈弧線目前轉到的角度
+  let hovered = null;     // 滑鼠正停在哪一段上
+  let tip = null, tipText = '';
 
   const api = {
     onNotify: null,    // (kind) => {}：pet.js 用來讓光球跳一下
@@ -50,6 +53,7 @@
       if (!LOOK[name]) return;
       themeName = name;
       if (host) host.dataset.theme = name;
+      if (tip) tip.dataset.theme = name;
     },
     setState,
     sync,
@@ -57,6 +61,16 @@
     layout,
     draw,
     rects: () => (rect ? [rect] : []),
+    /** 給 pet.js 的自言自語用：目前有幾個工作階段、各在什麼狀態、等最久的等了幾秒 */
+    stats() {
+      const r = { total: sessions.length, work: 0, wait: 0, done: 0, longestWait: 0, hovering: !!hovered };
+      for (const s of sessions) {
+        if (s.state === 'work') r.work++;
+        else if (s.state === 'done') r.done++;
+        else if (s.state === 'ask' || s.state === 'perm') { r.wait++; r.longestWait = Math.max(r.longestWait, now - s.since); }
+      }
+      return r;
+    },
     consumeDirty() { const d = dirty; dirty = false; return d; },
   };
 
@@ -71,7 +85,7 @@
     removePopup(s);
     if (state === 'done' || state === 'ask' || state === 'perm') {
       addPopup(s, state, used);
-      if (api.onNotify) api.onNotify(state);
+      if (api.onNotify) api.onNotify(state, api.stats());
     }
   }
 
@@ -172,14 +186,53 @@
 
   // ---------------- 每幀 ----------------
   function update(t) {
+    const dt = Math.max(0, Math.min(0.1, t - now));
     now = t;
+    // 整圈一起轉；滑鼠停在某一段上時先停住，方便看清楚是哪一個
+    if (SessCfg.ringPeriod && !hovered) rot = (rot + (dt / SessCfg.ringPeriod) * TAU) % TAU;
     for (let i = popups.length - 1; i >= 0; i--) {
       if (now >= popups[i].hideAt) { popups.splice(i, 1)[0].el.remove(); reflow(); }
     }
   }
 
+  // 每一段的幾何：半徑比例、間隙、每段所佔角度、每段長度
+  function geo(n) {
+    const k = LOOK[themeName];
+    const gap = n === 1 ? 0 : (n <= 6 ? k.gap : k.gapMany) * DEG;
+    const per = TAU / n;
+    return { k, gap, per, L: per - gap };
+  }
+
+  const STATE_LABEL = { work: 'Working', ask: 'Needs input', perm: 'Permission', done: 'Done', idle: 'Idle' };
+
+  /** 滑鼠停在哪一段弧線上 → 在光球上方顯示「專案名 · 狀態」 */
+  function hoverTest(o) {
+    let hit = null;
+    const n = sessions.length;
+    if (n && !o.quiet && o.cursor) {
+      const { k, gap, per } = geo(n);
+      const dx = o.cursor.x - o.pos.x, dy = o.cursor.y - o.pos.y;
+      if (Math.abs(Math.hypot(dx, dy) - o.RPT * k.r) <= 7) {
+        const rel = (((Math.atan2(dy, dx) + Math.PI / 2 - rot) % TAU) + TAU) % TAU;
+        const i = Math.min(n - 1, Math.floor(rel / per));
+        const within = rel - i * per;
+        if (n === 1 || (within >= gap / 2 - 0.04 && within <= per - gap / 2 + 0.04)) hit = sessions[i];
+      }
+    }
+    hovered = hit;
+    if (!tip) { tip = document.getElementById('tip'); if (tip) tip.dataset.theme = themeName; }
+    if (!tip) return;
+    if (!hit) { if (tipText) { tip.style.display = 'none'; tipText = ''; } return; }
+    const text = `${hit.name} · ${STATE_LABEL[hit.state] || hit.state}`;
+    if (text !== tipText) { tip.textContent = text; tip.style.display = 'block'; tipText = text; }
+    const above = o.pos.y - o.D * 0.5 - 34 > o.work.y; // 上面放不下就放下面
+    const x = Math.round(o.pos.x - o.win.x), y = Math.round(o.pos.y - o.win.y + (above ? -(o.D * 0.5 + 12) : o.D * 0.5 + 12));
+    tip.style.transform = `translate(${x}px, ${y}px) translate(-50%, ${above ? '-100%' : '0'})`;
+  }
+
   /** 把彈窗擺在光球旁邊（光球在螢幕右半就擺左邊），並算出螢幕座標給主程序 */
   function layout(o) {
+    hoverTest(o);
     let key = '';
     if (popups.length && ensureHost()) {
       const w = SessCfg.popupWidth, h = stackHeight, pad = 8;
@@ -201,21 +254,20 @@
   function draw(ctx, RPT, dim) {
     const n = sessions.length;
     if (!n) return;
-    const k = LOOK[themeName];
+    const { k, gap, per, L } = geo(n);
     const r = RPT * k.r;
-    const gap = n === 1 ? 0 : (n <= 6 ? k.gap : k.gapMany) * DEG;
-    const per = TAU / n, L = per - gap;
-    const rot = SessCfg.ringPeriod ? (now / SessCfg.ringPeriod) * TAU : 0;
     ctx.save();
     const arc = (a0, a1, w, col, alpha, cap, blur) => {
-      ctx.globalAlpha = Math.min(1, alpha) * k.alpha * dim;
-      ctx.strokeStyle = col; ctx.lineWidth = w * k.w; ctx.lineCap = cap || 'round';
+      ctx.globalAlpha = Math.min(1, alpha * boost) * (boost > 1 ? 1 : k.alpha) * dim;
+      ctx.strokeStyle = col; ctx.lineWidth = w * k.w * boost; ctx.lineCap = cap || 'round';
       ctx.shadowColor = k.glow; ctx.shadowBlur = (blur || 0) * k.blur;
       ctx.beginPath(); ctx.arc(0, 0, r, a0, a1); ctx.stroke();
     };
     // 每一段都從 a0 畫到 a1、一律平頭，所以不管什麼狀態，各段長度完全一樣
+    let boost = 1;
     sessions.forEach((s, i) => {
       const a0 = -Math.PI / 2 + rot + i * per + gap / 2, a1 = a0 + L;
+      boost = s === hovered ? 1.5 : 1; // 滑鼠停著的那一段：粗一點、亮一點
       if (s.state === 'idle') {
         arc(a0, a1, 1.2, k.idle, 1, 'butt');
       } else if (s.state === 'work') {

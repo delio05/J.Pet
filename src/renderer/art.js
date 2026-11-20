@@ -248,7 +248,7 @@ function drawBlueMid(n = 512) {
   return c;
 }
 
-/** 藍色內核拆三層：glow（固定）、base（細環＋準星，跟著滑鼠）、arcs（粗亮弧，旋轉） */
+/** 藍色內核拆四層：glow（中心光暈，固定）、inner（最內圈細環，固定）、base（外側細環＋準星）、arcs（粗亮弧，旋轉） */
 function drawBlueCoreParts(n = 512) {
   const { c: glowC, ctx: gctx } = mk(n);
   const { c: base, ctx } = mk(n);
@@ -258,10 +258,12 @@ function drawBlueCoreParts(n = 512) {
 
   radial(gctx, C, C, R * 0.48, [[0, rgba(0.92, 0.99, 1, 1)], [0.18, blueColor(0.85, 0.6)], [0.5, blueColor(0.4, 0.18)], [1, blueColor(0, 0)]]);
 
-  for (const [r, a] of [[R * 0.3, 0.55], [R * 0.42, 0.35]]) {
-    ctx.beginPath(); ctx.arc(C, C, r, 0, 2 * Math.PI);
-    stroke(ctx, blueColor(0.7, a), 1);
-  }
+  // 最內圈單獨一層：目送時它和中心光暈不動，其他層才偏過去
+  const { c: inner, ctx: ictx } = mk(n);
+  ictx.beginPath(); ictx.arc(C, C, R * 0.3, 0, 2 * Math.PI);
+  stroke(ictx, blueColor(0.7, 0.55), 1);
+  ctx.beginPath(); ctx.arc(C, C, R * 0.42, 0, 2 * Math.PI);
+  stroke(ctx, blueColor(0.7, 0.35), 1);
   actx.shadowColor = blueColor(0.6, 0.9); actx.shadowBlur = 8;
   for (let i = 0; i < 4; i++) {
     const a0 = rng.r(0, 2 * Math.PI);
@@ -277,7 +279,7 @@ function drawBlueCoreParts(n = 512) {
     ctx.lineTo(C + Math.cos(a) * R * 0.5, C + Math.sin(a) * R * 0.5);
     stroke(ctx, blueColor(0.9, 0.9), 1.6);
   }
-  return { glow: glowC, base, arcs };
+  return { glow: glowC, base, arcs, inner };
 }
 
 // ---------------- 碎片圖 ----------------
@@ -332,7 +334,7 @@ const THEMES = {
       return {
         shell: drawBlueShell(), mid: drawBlueMid(),
         shellPlain: drawBlueShell(512, false), // 有終端機工作階段時用：最外圈三段亮弧換成分段弧線
-        coreGlow: core.glow, coreBase: core.base, coreSpinner: core.arcs, arms: [], dots: [],
+        coreGlow: core.glow, coreBase: core.base, coreInner: core.inner, coreSpinner: core.arcs, arms: [], dots: [],
         spark: makeSpark(rgba(0.9, 1, 1, 1), rgba(0.35, 0.85, 1, 1), rgba(0.05, 0.4, 0.9, 0.85), rgba(0.05, 0.4, 0.9, 0)),
         shard: makeShard(rgba(0.05, 0.4, 0.88, 1), rgba(0.75, 0.97, 1, 1)),
       };
