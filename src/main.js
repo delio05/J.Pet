@@ -103,7 +103,7 @@ function createWindow() {
         width: 320, height: 320,
       };
       const img = await win.webContents.capturePage(rect);
-      fs.writeFileSync(process.env.ORBPET_CAPTURE, img.toPNG());
+      fs.writeFileSync(process.env.ORBPET_CAPTURE, img.toPNG({ scaleFactor: win.webContents.getZoomFactor() * (screen.getDisplayMatching(bw).scaleFactor) }));
       console.log('captured', process.env.ORBPET_CAPTURE, JSON.stringify(orb));
     }, Number(process.env.ORBPET_CAPTURE_DELAY || 4000));
   }

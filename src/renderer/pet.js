@@ -105,12 +105,22 @@ const radius = () => D * Cfg.collisionScale;
 
 // 512px 的原圖先縮到實際顯示大小，每幀貼圖比較省
 function shrink(img) {
-  const px = Math.ceil(S * 2 * 1.3);
+  // 縮到螢幕實際需要的大小（1× 螢幕約 120px、Retina 約 240px），每次最多縮一半，細線才不會糊掉
+  const target = Math.ceil(S * (window.devicePixelRatio || 1) * 1.2);
+  let src = img;
+  while (src.width / 2 > target) {
+    const half = document.createElement('canvas');
+    half.width = half.height = Math.ceil(src.width / 2);
+    const h = half.getContext('2d');
+    h.imageSmoothingQuality = 'high';
+    h.drawImage(src, 0, 0, half.width, half.height);
+    src = half;
+  }
   const c = document.createElement('canvas');
-  c.width = c.height = px;
+  c.width = c.height = target;
   const g = c.getContext('2d');
   g.imageSmoothingQuality = 'high';
-  g.drawImage(img, 0, 0, px, px);
+  g.drawImage(src, 0, 0, target, target);
   return c;
 }
 const preparedCache = new Map();
@@ -543,7 +553,7 @@ function tick() {
   const sp = Math.hypot(vel.x, vel.y);
   if (sp > Cfg.maxSpeed) { vel.x *= Cfg.maxSpeed / sp; vel.y *= Cfg.maxSpeed / sp; }
 
-  heat += (clamp((cpu - 0.25) / 0.6, 0, 1) - heat) * Math.min(1, 0.6 * dt);
+  heat += (clamp((cpu - 0.5) / 0.4, 0, 1) - heat) * Math.min(1, 0.6 * dt); // CPU 超過 50% 才開始變紅
 
   updateSquash(dt);
   updateMood(dt);
@@ -657,6 +667,7 @@ function render(dt) {
   const lx = gx0 - ox, ly = gy0 - oy; // 在光球畫布裡的位置
   const ctx = octx;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingQuality = 'high';
   ctx.clearRect(0, 0, OC, OC);
   renderOrb(ctx, lx, ly, { dt, b, e, co, si, m00, m01, m11, sx, sy, ty, lead, coreOff, glowOff, dizzy, dim, wobX, wobY, coreScale, hasArms, gz, par });
   renderParticles();
@@ -718,7 +729,7 @@ function renderOrb(ctx, lx, ly, v) {
     const hr = D * 0.51;
     const hg = ctx.createRadialGradient(0, 0, 0, 0, 0, hr);
     hg.addColorStop(0, 'rgba(242,38,13,0.85)'); hg.addColorStop(0.7, 'rgba(230,26,13,0.55)'); hg.addColorStop(1, 'rgba(230,26,13,0)');
-    ctx.globalAlpha = heat * 0.6 * dim;
+    ctx.globalAlpha = heat * 0.4 * dim;
     ctx.fillStyle = hg;
     ctx.fillRect(-hr, -hr, hr * 2, hr * 2);
   }

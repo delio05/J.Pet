@@ -4,7 +4,7 @@
 
 const LINE_WEIGHT = 1.7;   // 線條粗細倍數
 const DOT_SPREAD = 0.65;   // 內核小亮點分佈範圍（內核半徑的比例）
-const GLOW_BLUR = 18;      // 內核光絲的光暈模糊量（canvas 的模糊約是 macOS 的一半，18 ≈ Swift 版的 10）
+const GLOW_BLUR = 11;      // 內核光絲的光暈模糊量（小一點：光暈輕、外圈淡）
 
 class RNG {
   constructor(seed) { this.s = BigInt.asUintN(64, BigInt(seed)); }
@@ -297,7 +297,7 @@ function makeShard(outer, inner) {
 
 const THEMES = {
   orange: {
-    glowStops: [[0, rgba(1, 0.55, 0.1, 0.5)], [0.45, rgba(1, 0.45, 0.05, 0.16)], [1, rgba(1, 0.4, 0, 0)]],
+    glowStops: [[0, rgba(1, 0.62, 0.15, 0.28)], [0.45, rgba(1, 0.5, 0.08, 0.07)], [1, rgba(1, 0.45, 0, 0)]], // 光暈輕、往外淡出
     accent: rgba(0.78, 0.3, 0.02, 1),
     timerColor: rgba(1, 0.97, 0.9, 1),
     spin: { shell: 40, mid: 0 },
@@ -312,7 +312,7 @@ const THEMES = {
     },
   },
   blue: {
-    glowStops: [[0, rgba(0.25, 0.7, 1, 0.45)], [0.45, rgba(0.1, 0.5, 1, 0.15)], [1, rgba(0.05, 0.4, 1, 0)]],
+    glowStops: [[0, rgba(0.25, 0.7, 1, 0.28)], [0.45, rgba(0.1, 0.5, 1, 0.07)], [1, rgba(0.05, 0.4, 1, 0)]],
     accent: rgba(0.04, 0.36, 0.85, 1),
     timerColor: rgba(0.92, 0.98, 1, 1),
     spin: { shell: 60, mid: -22 },
