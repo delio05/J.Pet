@@ -769,8 +769,11 @@ function renderOrb(ctx, lx, ly, v) {
       const tx = (gv.x * cs - gv.y * sn) * k, tyy = (gv.x * sn + gv.y * cs) * k;
       const w = Math.min(1, dl.speed * dt);
       dl.ox += (tx - dl.ox) * w; dl.oy += (tyy - dl.oy) * w;
-      const px = (dl.x + dl.ox + Math.sin(now * dl.f1 + dl.ph1) * 0.018) * RPT;
-      const py = (dl.y + dl.oy + Math.cos(now * dl.f2 + dl.ph2) * 0.018) * RPT;
+      let qx = dl.x + dl.ox + Math.sin(now * dl.f1 + dl.ph1) * 0.018;
+      let qy = dl.y + dl.oy + Math.cos(now * dl.f2 + dl.ph2) * 0.018;
+      const qr = Math.hypot(qx, qy);
+      if (qr > 0.98) { qx *= 0.98 / qr; qy *= 0.98 / qr; } // 聚集時不跑出光球
+      const px = qx * RPT, py = qy * RPT;
       let gain = 1;
       if (reach > 0.001) {
         const align = Math.max(0, (dl.x * gv.x + dl.y * gv.y) / (Math.max(r, 0.0001) * reach));

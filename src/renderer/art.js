@@ -3,7 +3,7 @@
 'use strict';
 
 const LINE_WEIGHT = 1.7;   // 線條粗細倍數
-const DOT_SPREAD = 0.65;   // 內核小亮點分佈範圍（內核半徑的比例）
+const DOT_SPREAD = 0.9;    // 內核小亮點分佈範圍（內核半徑的比例）
 const GLOW_BLUR = 11;      // 內核光絲的光暈模糊量（小一點：光暈輕、外圈淡）
 
 class RNG {
@@ -162,7 +162,7 @@ function drawCoreParts(n = 512) {
   const golden = Math.PI * (3 - Math.sqrt(5));
   const dots = [];
   for (let i = 0; i < 42; i++) {
-    const rr = DOT_SPREAD * Math.sqrt((i + rng.r(0.1, 0.9)) / 42);
+    const rr = DOT_SPREAD * Math.pow((i + rng.r(0.1, 0.9)) / 42, 0.4); // 次方 < 0.5 → 比較少擠在中間
     const a = i * golden + rng.r(-0.3, 0.3);
     const near = 1 - rr / DOT_SPREAD;
     dots.push({ x: Math.cos(a) * rr, y: -Math.sin(a) * rr, size: 1.4 + 1.6 * near, alpha: 0.5 + 0.4 * near });
